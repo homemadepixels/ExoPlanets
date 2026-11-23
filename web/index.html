@@ -145,23 +145,23 @@
   // estimate: which values count as estimates for the "Hide estimates" switch.
   const FILTERS = [
     { group: 'Location' },
-    { key: 'dist', name: 'Distance from Earth', min: 4, max: 30000, scale: 'log', required: true,
+    { key: 'dist', unit: ' ly', name: 'Distance from Earth', min: 4, max: 30000, scale: 'log', required: true,
       get: p => p.dist, fmt: v => `${fmtNum(v)} ly`, hint: 'Light-years from Earth' },
     { group: 'Planet' },
-    { key: 'size', name: 'Planet size', min: 0.3, max: 80, scale: 'log', required: true, ref: 1, refLabel: 'Earth',
+    { key: 'size', unit: ' × Earth', name: 'Planet size', min: 0.3, max: 80, scale: 'log', required: true, ref: 1, refLabel: 'Earth',
       get: p => p.size, fmt: v => `${fmtNum(v)}× Earth`, hint: 'Radius compared to Earth' },
-    { key: 'mass', name: 'Planet mass', min: 0.03, max: 13000, scale: 'log', ref: 1, refLabel: 'Earth',
+    { key: 'mass', unit: ' × Earth', name: 'Planet mass', min: 0.03, max: 13000, scale: 'log', ref: 1, refLabel: 'Earth',
       get: p => p.raw.planet_mass_earths, fmt: v => `${fmtNum(v)}× Earth`, hint: 'Compared to Earth',
       estimate: p => ['estimated from size', 'upper limit', 'lower limit'].includes(p.raw.planet_mass_source) },
-    { key: 'grav', name: 'Surface gravity', min: 0.03, max: 100, scale: 'log', ref: 1, refLabel: 'Earth',
+    { key: 'grav', unit: ' × Earth', name: 'Surface gravity', min: 0.03, max: 100, scale: 'log', ref: 1, refLabel: 'Earth',
       get: p => p.raw.surface_gravity_earths, fmt: v => `${fmtNum(v)}× Earth`, hint: 'How heavy you would feel',
       estimate: p => p.raw.surface_gravity_source === 'uses estimated values' },
-    { key: 'light', name: 'Starlight received', min: 0.001, max: 100000, scale: 'log', ref: 1, refLabel: 'Earth',
+    { key: 'light', unit: ' × Earth', name: 'Starlight received', min: 0.001, max: 100000, scale: 'log', ref: 1, refLabel: 'Earth',
       get: p => p.raw.starlight_earths, fmt: v => `${fmtNum(v)}× Earth`, hint: 'Energy from its star, compared to Earth' },
     { group: 'Star' },
-    { key: 'temp', name: 'Star temperature', min: 0.09, max: 10, scale: 'log', required: true, ref: 1, refLabel: 'Sun',
+    { key: 'temp', unit: ' × Sun', name: 'Star temperature', min: 0.09, max: 10, scale: 'log', required: true, ref: 1, refLabel: 'Sun',
       get: p => p.temp, fmt: v => `${fmtNum(v)}× Sun`, hint: 'Compared to our Sun (5,772 K)' },
-    { key: 'age', name: 'Star age', min: 0, max: 14, scale: 'linear', ref: 4.6, refLabel: 'Sun',
+    { key: 'age', unit: ' billion yrs', name: 'Star age', min: 0, max: 14, scale: 'linear', ref: 4.6, refLabel: 'Sun',
       get: p => p.raw.star_age_gyr, fmt: v => `${fmtNum(v)} billion yrs`, hint: 'Our Sun is 4.6 billion years old' },
   ];
   const SLIDERS = FILTERS.filter(f => f.key);
@@ -170,11 +170,12 @@
   const toT = (f, v) => f.scale === 'log' ? STEPS * Math.log(v / f.min) / Math.log(f.max / f.min) : STEPS * (v - f.min) / (f.max - f.min);
   function fmtNum(v) {
     if (v == null) return '–';
+    const trim = t => t.includes('.') ? t.replace(/\.?0+$/, '') : t;
     if (v >= 1000) return Math.round(v).toLocaleString();
     if (v >= 100) return v.toFixed(0);
-    if (v >= 10) return v.toFixed(1);
-    if (v >= 0.01 || v === 0) return v.toFixed(2);
-    return v.toPrecision(2);
+    if (v >= 10) return trim(v.toFixed(1));
+    if (v >= 0.01 || v === 0) return trim(v.toFixed(2));
+    return trim(v.toPrecision(2));
   }
 
   const state = { ranges: {}, planets: [], img: {}, cam: { s: 1, x: 0, y: 0 }, selected: null, hover: null, hidden: 0 };
@@ -207,7 +208,9 @@
       f.lo = toVal(f, a); f.hi = toVal(f, b);
       fill.style.left = (a / STEPS * 100) + '%';
       fill.style.width = ((b - a) / STEPS * 100) + '%';
-      label.textContent = f.active ? `${f.fmt(f.lo)} – ${f.fmt(f.hi)}` : 'Any';
+      // Always show the real range, unit written once. A handle at the far right also
+      // includes anything above it, so that end gets a "+" (for example "4 – 30,000+ ly").
+      label.textContent = `${fmtNum(f.lo)} – ${fmtNum(f.hi)}${b === STEPS ? '+' : ''}${f.unit}`;
       el.classList.toggle('idle', !f.active);
       // Keep the active handle on top so the two handles never get stuck under each other
       const loTop = moved === lo || a >= STEPS - 5;
