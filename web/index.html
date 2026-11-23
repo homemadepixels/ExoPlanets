@@ -372,13 +372,13 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const stemMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
   const stemGeo = new THREE.BufferGeometry();
   const stems = new THREE.LineSegments(stemGeo, stemMat); stems.renderOrder = 2; stems.frustumCulled = false; scene.add(stems);
-  // Small dots where each height line meets the galaxy plane (same color and fade as the lines)
+  // Small white dots where each height line meets the galaxy plane (same fade as the lines)
   const footMat = new THREE.ShaderMaterial({
     uniforms: { uSize: { value: 3 }, uOpacity: { value: 0 } },
     vertexShader: `attribute vec3 rgb; varying vec3 vRgb; uniform float uSize;
       void main() { vRgb = rgb; gl_PointSize = uSize; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `varying vec3 vRgb; uniform float uOpacity;
-      void main() { if (length(gl_PointCoord * 2.0 - 1.0) > 1.0) discard; gl_FragColor = vec4(vRgb, uOpacity); }`,
+      void main() { if (length(gl_PointCoord * 2.0 - 1.0) > 1.0) discard; gl_FragColor = vec4(1.0, 1.0, 1.0, uOpacity); }`,
     transparent: true, depthTest: false, depthWrite: false,
   });
   const footGeo = new THREE.BufferGeometry();
