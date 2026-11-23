@@ -248,7 +248,6 @@
       p.match = ok;
       if (ok) match++; else if (missing) noData++;
     }
-    state.matchCount = match;
     document.getElementById('counts').innerHTML =
       `<div><b>${match.toLocaleString()}</b> planets shown</div>` +
       (noData ? `<div>${noData.toLocaleString()} more hidden because they have no data for ${[...names].join(', ').toLowerCase()}</div>` : '') +
@@ -327,20 +326,7 @@
     const dim = Math.max(0, Math.min(1, Math.log2(screenPxPerImagePx / 3) / 3)) * 0.5;
     if (dim > 0) { ctx.fillStyle = `rgba(7,8,12,${dim})`; ctx.fillRect(0, 0, W, H); }
 
-    // When only a few planets match, draw them larger with a soft halo so they're easy to find
-    const few = state.matchCount <= 200;
-    const r = dotRadius() * (few ? 1.7 : 1);
-    if (few) {
-      ctx.fillStyle = 'rgba(255,255,255,0.18)';
-      ctx.beginPath();
-      for (const p of state.planets) {
-        if (!p.match) continue;
-        const [sx, sy] = toScreen(p.wx, p.wy);
-        if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;
-        ctx.moveTo(sx + r + 5, sy); ctx.arc(sx, sy, r + 5, 0, Math.PI * 2);
-      }
-      ctx.fill();
-    }
+    const r = dotRadius();
     const order = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];
     ctx.lineWidth = 0.6; ctx.strokeStyle = 'rgba(0,0,0,0.75)';
     for (const group of order) {

@@ -142,7 +142,7 @@ An empty cell means the value hasn't been measured. Wherever people will see the
 - **Range sliders (two handles), grouped as Location, Planet, and Star:** distance from Earth, planet size, planet mass, surface gravity, starlight received, star temperature (× our Sun, 5,772 K), and star age. Most use a log scale because the values span huge ranges. A white tick on each slider marks Earth's or the Sun's value. Slider ends are open: at the far left or right, values beyond the slider still count.
 - **Missing data:** distance, planet size, and star temperature are required, so 351 planets missing size or star temperature are never shown (6,065 are). For the other sliders, planets with no value are hidden only while that slider is in use, and the panel says how many.
 - **Hide estimates:** planet mass and surface gravity have a switch that hides estimated values. Minimum masses count as measured, but the detail card labels them, because the true mass can be higher.
-- **Zoom to shown planets:** frames the Sun and every planet currently shown. When 200 or fewer planets match, their dots are drawn larger with a soft halo.
+- **Zoom to shown planets:** frames the Sun and every planet currently shown.
 - **Controls:** drag to pan, scroll or pinch to zoom (down to 1 light-year = 20 px), tap or click a planet for its details, including other planets around the same star. A scale bar shows the distance on screen, and the background darkens once you zoom past the image's real detail. Dot color shows how the planet was found.
 
 To run it locally, serve the `web` folder (for example `python3 -m http.server` from inside `web/`) and open `index.html`. Opening the file directly won't load the data.
