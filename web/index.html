@@ -214,7 +214,7 @@
   const GALAXY_BOX = { x: 0, y: 0, w: GALAXY.w, h: GALAXY.h };
   const toScreen = (wx, wy) => [wx * state.cam.s + state.cam.x, wy * state.cam.s + state.cam.y];
   const minScale = () => camFor(GALAXY_BOX).s * 0.5;
-  const maxScale = () => 3 * 4096 / REGION_W;  // up to 3 screen px per pixel of the detailed image
+  const maxScale = () => 20 / PX_PER_LY;  // closest zoom: 1 light-year = 20 screen px
   function zoomAt(sx, sy, factor) {
     const c = state.cam;
     const ns = Math.max(minScale(), Math.min(c.s * factor, maxScale()));
@@ -248,7 +248,7 @@
   // Dot size: small, growing slightly only when zoomed in close
   const dotRadius = () => {
     const k = REGION.w * state.cam.s;   // on-screen width of the 20,000 ly region
-    return Math.max(1.2, Math.min(2.5, 1.2 + 0.65 * Math.log2(Math.max(1, k / 860))));
+    return Math.max(1.2, Math.min(3, 1.2 + 0.65 * Math.log2(Math.max(1, k / 860))));
   };
 
   function draw() {
@@ -265,6 +265,11 @@
       ctx.drawImage(state.img.region, rx, ry, REGION.w * c.s, REGION.h * c.s);
       ctx.globalAlpha = 1;
     }
+    // Past the detail image's real resolution the background is just a blur,
+    // so darken it gradually to keep the dots easy to read.
+    const screenPxPerImagePx = REGION.w * c.s / 4096;
+    const dim = Math.max(0, Math.min(1, Math.log2(screenPxPerImagePx / 3) / 3)) * 0.5;
+    if (dim > 0) { ctx.fillStyle = `rgba(7,8,12,${dim})`; ctx.fillRect(0, 0, W, H); }
 
     const r = dotRadius();
     const order = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];
@@ -279,6 +284,20 @@
         ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2);
       }
       ctx.stroke(); ctx.fill();
+    }
+    // Scale bar (bottom right): a round number of light-years, 60–150 px long
+    {
+      const pxPerLyScreen = PX_PER_LY * c.s;
+      let ly = 1; const steps = [1, 2, 5];
+      outer: for (let e = 0; e < 7; e++) for (const m of steps) { ly = m * 10 ** e; if (ly * pxPerLyScreen >= 60) break outer; }
+      const len = ly * pxPerLyScreen, v = viewSize();
+      const bx = v.left + v.availW - len - 24, by = v.availH - 28;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(bx, by - 5); ctx.lineTo(bx, by); ctx.lineTo(bx + len, by); ctx.lineTo(bx + len, by - 5); ctx.stroke();
+      ctx.font = '600 12px -apple-system, Segoe UI, sans-serif'; ctx.textAlign = 'center';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.fillStyle = '#fff';
+      const lbl = `${ly.toLocaleString()} light-year${ly === 1 ? '' : 's'}`;
+      ctx.strokeText(lbl, bx + len / 2, by - 9); ctx.fillText(lbl, bx + len / 2, by - 9); ctx.textAlign = 'start';
     }
     // The Sun
     const [sx, sy] = toScreen(SUN.x, SUN.y);
@@ -378,7 +397,12 @@
         <dt>Star type</dt><dd>${r.star_type == null ? nm : r.star_type}${est(r.star_type_source)}</dd>
         <dt>Star temperature</dt><dd>${Math.round(r.star_temp_k).toLocaleString()} K<div class="est">${fmtNum(p.temp)}× Sun</div></dd>
         <dt>Star size</dt><dd>${r.star_size_suns == null ? nm : fmtNum(r.star_size_suns) + '× Sun'}</dd>
-      </dl>`;
+      </dl>${(() => {
+        const sib = state.planets.filter(q => q !== p && q.raw.star_system === r.star_system);
+        if (!sib.length) return '';
+        return `<div class="sys" style="margin:10px 0 0">Also around this star (same spot on the map):<br>` +
+          sib.map(q => q.match ? q.name : `${q.name} <span class="est">(filtered out)</span>`).join('<br>') + '</div>';
+      })()}`;
     card.style.display = 'block';
   }
   document.getElementById('cardClose').onclick = () => select(null);
