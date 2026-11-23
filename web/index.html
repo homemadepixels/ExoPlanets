@@ -23,6 +23,8 @@
     color: var(--text); font: 600 16px/1 -apple-system, Segoe UI, sans-serif; cursor: pointer;
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
   #mapctl #tiltBtn { font-size: 13px; }
+  #mapctl #compass { display: flex; align-items: center; justify-content: center; padding: 0; }
+  #needle { transform-origin: 12px 12px; }
   .howto { color: var(--muted); font-size: 11px; margin: -6px 0 12px; }
 
   #panel { position: fixed; top: 16px; left: 16px; width: 320px; max-height: calc(100% - 32px); overflow-y: auto;
@@ -100,6 +102,7 @@
 <body>
 <div id="map"></div>
 <div id="mapctl">
+  <button id="compass" aria-label="Turn the map so the galaxy center is up" title="Galaxy center up"><svg viewBox="0 0 24 24" width="22" height="22"><g id="needle"><path d="M12 3 L16 12 L12 10.5 L8 12 Z" fill="#ff6b5a"/><path d="M12 21 L8 12 L12 13.5 L16 12 Z" fill="#cfcbe0"/></g></svg></button>
   <button id="zoomIn" aria-label="Zoom in">+</button>
   <button id="zoomOut" aria-label="Zoom out">−</button>
   <button id="tiltBtn" aria-label="Tilt the map">3D</button>
@@ -115,7 +118,7 @@
       <button data-view="solar" class="on">Near the Sun (20,000 ly)</button>
       <button data-view="full">Whole galaxy</button>
     </div>
-    <div class="howto">Drag to move · Scroll or pinch to zoom · Right-drag, Ctrl-drag, or two-finger drag to tilt</div>
+    <div class="howto">Drag to move · Scroll or pinch to zoom · Right-drag or Ctrl-drag to tilt and turn · Two fingers to tilt and turn on touch</div>
     <div id="filters"></div>
     <div class="counts" id="counts"></div>
     <div class="legend" id="legend"></div>
@@ -291,7 +294,6 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   controls.enableDamping = true; controls.dampingFactor = 0.12;
   controls.zoomToCursor = true; controls.zoomSpeed = 1.3;
   controls.minPolarAngle = 0; controls.maxPolarAngle = MAX_TILT;      // tilt limits
-  controls.minAzimuthAngle = 0; controls.maxAzimuthAngle = 0;         // no spinning: galaxy center stays up
   controls.rotateSpeed = 0.6;
 
   // The open map area is the part of the screen not covered by the panel. The camera's
@@ -324,6 +326,8 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   }
   const camDist = () => camera.position.distanceTo(controls.target);
   const pxPerLy = () => view.fullH / (2 * tanHalf() * camDist());   // scale at the orbit point
+  // Heading: how far the map is turned around the vertical axis (0 = galaxy center is up)
+  const heading = () => { const o = camera.position.clone().sub(controls.target); return Math.atan2(o.x, o.z); };
   const tilt = () => { const o = camera.position.clone().sub(controls.target); return Math.acos(Math.min(1, o.y / o.length())); };
 
   // Keep the orbit point on the galaxy
@@ -418,6 +422,8 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     drawOverlay(ppl, r);
     viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === (a > 0.5)));
     document.getElementById('tiltBtn').textContent = tilt() > 0.05 ? '2D' : '3D';
+    // Compass needle points toward the galaxy's center on screen
+    needle.style.transform = `rotate(${heading() * 180 / Math.PI}deg)`;
   }
 
   // Sun marker, selection rings and scale bar, drawn flat on top of the 3D view
@@ -462,20 +468,23 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
 
   // ---------- Smooth camera moves (view buttons, zoom buttons, 2D/3D) ----------
   let anim = 0;
-  function flyTo({ x = controls.target.x, z = controls.target.z, dist = camDist(), phi = tilt() }, ms = 900) {
+  function flyTo({ x = controls.target.x, z = controls.target.z, dist = camDist(), phi = tilt(), theta = heading() }, ms = 900) {
     cancelAnimationFrame(anim);
-    const from = { x: controls.target.x, z: controls.target.z, dist: camDist(), phi: tilt() }, t0 = performance.now();
+    const from = { x: controls.target.x, z: controls.target.z, dist: camDist(), phi: tilt(), theta: heading() }, t0 = performance.now();
     dist = Math.max(controls.minDistance, Math.min(controls.maxDistance, dist));
-    const set = (X, Z, D, P) => {
+    // Turn the short way around
+    let dTheta = theta - from.theta; dTheta = Math.atan2(Math.sin(dTheta), Math.cos(dTheta));
+    const set = (X, Z, D, P, T) => {
+      P = Math.max(P, 1e-6);       // keep a tiny tilt so the heading stays defined when looking straight down
       controls.target.set(X, 0, Z);
-      camera.position.set(X, D * Math.cos(P), Z + D * Math.sin(P) + 1e-6 * D);
+      camera.position.set(X + D * Math.sin(P) * Math.sin(T), D * Math.cos(P), Z + D * Math.sin(P) * Math.cos(T));
       controls.update(); dirty = true;
     };
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { set(x, z, dist, phi); return; }
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { set(x, z, dist, phi, from.theta + dTheta); return; }
     const step = now => {
       let t = Math.min(1, (now - t0) / ms); t = t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
       set(from.x + (x - from.x) * t, from.z + (z - from.z) * t,
-          from.dist * Math.pow(dist / from.dist, t), from.phi + (phi - from.phi) * t);
+          from.dist * Math.pow(dist / from.dist, t), from.phi + (phi - from.phi) * t, from.theta + dTheta * t);
       if (t < 1) anim = requestAnimationFrame(step);
     };
     anim = requestAnimationFrame(step);
@@ -547,9 +556,11 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const nearView = () => ({ x: 0, z: 0, dist: fitDistance(REGION.size) });
   const galaxyView = () => ({ x: GALAXY.cx, z: GALAXY.cz, dist: fitDistance(GALAXY.size) });
   viewBtns.forEach(b => b.onclick = () => flyTo(b.dataset.view === 'solar' ? nearView() : galaxyView()));
-  document.getElementById('resetView').onclick = () => flyTo({ ...nearView(), phi: 0 });
+  document.getElementById('resetView').onclick = () => flyTo({ ...nearView(), phi: 0, theta: 0 });
   document.getElementById('zoomIn').onclick = () => flyTo({ dist: camDist() / 2 }, 400);
   document.getElementById('zoomOut').onclick = () => flyTo({ dist: camDist() * 2 }, 400);
+  const needle = document.getElementById('needle');
+  document.getElementById('compass').onclick = () => flyTo({ theta: 0 }, 700);
   document.getElementById('tiltBtn').onclick = () => flyTo({ phi: tilt() > 0.05 ? 0 : 45 * Math.PI / 180 }, 700);
   // Frame the Sun and every planet currently shown (at least 20 light-years across)
   document.getElementById('zoomMatches').onclick = () => {
