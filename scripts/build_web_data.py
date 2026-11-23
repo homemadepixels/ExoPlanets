@@ -1,7 +1,9 @@
 """Make the small data file the map page uses (web/data/planets_web.json).
 Run after build_catalog.py:  python3 scripts/build_web_data.py
 Only planets with a distance, planet size and star temperature are included,
-because the first sliders filter on those three values."""
+because the first three sliders require those values. The later sliders (mass,
+starlight, star age, gravity) may be empty; the map hides those planets only
+when that slider is in use."""
 import json
 from pathlib import Path
 import pandas as pd
@@ -13,7 +15,9 @@ p = pd.read_csv(ROOT / "catalog" / "planets.csv")
 keep = p.dropna(subset=["distance_ly", "planet_size_earths", "star_temp_k", "x_ly", "y_ly"])
 fields = ["planet_name", "star_system", "found_by", "x_ly", "y_ly", "distance_ly",
           "planet_size_earths", "planet_size_source", "star_temp_k", "star_type",
-          "star_type_source", "star_distance_au", "star_size_suns"]
+          "star_type_source", "star_distance_au", "star_size_suns",
+          "planet_mass_earths", "planet_mass_source", "starlight_earths", "starlight_source",
+          "star_age_gyr", "star_age_source", "surface_gravity_earths", "surface_gravity_source"]
 rows = []
 for _, r in keep[fields].iterrows():
     rows.append([None if pd.isna(v) else (round(v, 4) if isinstance(v, float) else v) for v in r])

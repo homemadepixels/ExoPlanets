@@ -116,6 +116,35 @@ def build_row(r):
     v, p, m, s = value_with_range(r, "st_rad")
     row.update({"star_size_suns": v, "star_size_plus": p, "star_size_minus": m,
                 "star_size_source": s})
+    # ---- Pass 2 ----
+    # 6. Planet mass (Earth = 1). NASA's "best mass" can be a true mass, a minimum
+    #    mass (wobble method only gives a lower bound), or an estimate from the size.
+    v, p, m, s = value_with_range(r, "pl_bmasse")
+    prov = str(r.get("pl_bmassprov", ""))
+    if v is not None and s == "measured":
+        s = {"Msini": "minimum mass", "M-R relationship": "estimated from size"}.get(prov, "measured")
+    row.update({"planet_mass_earths": v, "planet_mass_plus": p, "planet_mass_minus": m,
+                "planet_mass_source": s})
+    # 7. Starlight received (Earth = 1): energy the planet gets from its star
+    v, p, m, s = value_with_range(r, "pl_insol", calc_label="calculated from star brightness and orbit")
+    row.update({"starlight_earths": v, "starlight_plus": p, "starlight_minus": m, "starlight_source": s})
+    # 8. Star age (billions of years; Sun = 4.6)
+    v, p, m, s = value_with_range(r, "st_age")
+    row.update({"star_age_gyr": v, "star_age_plus": p, "star_age_minus": m, "star_age_source": s})
+    # 9. Surface gravity (Earth = 1) = mass / radius^2, both in Earth units
+    mass, rad = row["planet_mass_earths"], row["planet_size_earths"]
+    if mass is None or rad is None or rad <= 0:
+        g, gs = None, "not measured"
+    else:
+        g = round(mass / rad ** 2, 4)
+        ms, rs = row["planet_mass_source"], row["planet_size_source"]
+        if rs == "measured" and ms == "measured":
+            gs = "calculated from measured mass and size"
+        elif rs == "measured" and ms == "minimum mass":
+            gs = "calculated from minimum mass (true value may be higher)"
+        else:
+            gs = "uses estimated values"
+    row.update({"surface_gravity_earths": g, "surface_gravity_source": gs})
     return row
 
 
@@ -140,7 +169,8 @@ def main():
     skipped.sort_values("planet_name").to_csv(OUT / "skipped_no_distance.csv", index=False)
 
     print(json.dumps(meta, indent=1))
-    for col in ["planet_size_source", "star_distance_source", "star_type_source", "star_size_source"]:
+    for col in ["planet_size_source", "star_distance_source", "star_type_source", "star_size_source",
+                "planet_mass_source", "starlight_source", "star_age_source", "surface_gravity_source"]:
         print(col, planets[col].value_counts().to_dict())
 
 

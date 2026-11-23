@@ -30,7 +30,7 @@
   .frow { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
   .fname { font-weight: 600; font-size: 13px; }
   .fval { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .range { position: relative; height: 26px; }
+  .range { position: relative; height: 26px; margin-top: 8px; }
   .range .track, .range .fillbar { position: absolute; top: 11px; height: 4px; border-radius: 2px; }
   .range .track { left: 0; right: 0; background: var(--track); }
   .range .fillbar { background: var(--fill); }
@@ -42,19 +42,30 @@
     border: 2px solid var(--fill); cursor: pointer; }
   .range input::-webkit-slider-runnable-track { background: none; }
   .range input::-moz-range-track { background: none; }
-  .hint { color: var(--muted); font-size: 11px; margin-top: 1px; }
+  .hint { color: var(--muted); font-size: 11px; margin-top: 1px; display: flex; justify-content: space-between; gap: 8px; }
+  .group { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .04em; margin: 4px 0 8px;
+    padding-top: 10px; border-top: 1px solid var(--line); }
+  .group:first-child { border-top: 0; padding-top: 0; }
+  .range .tick { position: absolute; top: 5px; width: 2px; height: 16px; margin-left: -1px; background: #fff; border-radius: 1px;
+    opacity: .85; pointer-events: none; z-index: 1; }
+  .range .ticklbl { position: absolute; top: -9px; transform: translateX(-50%); font-size: 10px; color: #fff; opacity: .8;
+    pointer-events: none; white-space: nowrap; }
+  .est-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .est-toggle input { margin: 0; accent-color: var(--fill); }
+  .filter.idle .fval { opacity: .7; }
 
   .counts { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12px; color: var(--muted); }
   .counts b { color: var(--text); font-size: 14px; }
   .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin: 10px 0 8px; font-size: 12px; }
   .legend span { display: flex; align-items: center; gap: 6px; color: var(--muted); }
   .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 1.5px #000; }
-  .btns { display: flex; gap: 8px; margin-top: 8px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  #zoomMatches { flex-basis: 100%; }
   .btns button { flex: 1; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px;
     padding: 7px; font: inherit; font-size: 12px; cursor: pointer; }
   #collapse { display: none; }
 
-  #card { position: fixed; right: 16px; top: 16px; width: 280px; background: var(--panel); border: 1px solid var(--line);
+  #card { position: fixed; right: 16px; top: 16px; width: 290px; max-height: calc(100% - 32px); overflow-y: auto; background: var(--panel); border: 1px solid var(--line);
     border-radius: 14px; padding: 14px 16px; display: none; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
   #card h2 { font-size: 15px; margin: 0 0 2px; padding-right: 22px; }
   #card .sys { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
@@ -93,6 +104,7 @@
     <div class="counts" id="counts"></div>
     <div class="legend" id="legend"></div>
     <div class="btns">
+      <button id="zoomMatches">Zoom to shown planets</button>
       <button id="resetFilters">Reset sliders</button>
       <button id="resetView">Reset view</button>
     </div>
@@ -125,22 +137,44 @@
   };
   const colorFor = m => COLORS[m] || COLORS.Other;
 
-  // ---------- Sliders: two handles each, log scale because values span huge ranges ----------
+  // ---------- Sliders ----------
+  // Two handles each. Most use a log scale because the values span huge ranges.
+  // required: planets without this value are never shown (the first three sliders).
+  // Other sliders hide planets without a value only while that slider is in use.
+  // ref: Earth's (or the Sun's) value, drawn as a white tick on the track.
+  // estimate: which values count as estimates for the "Hide estimates" switch.
   const FILTERS = [
-    { key: 'dist', name: 'Distance from Earth', min: 4, max: 30000,
-      fmt: v => `${fmtNum(v)} ly`, hint: 'Light-years from Earth' },
-    { key: 'size', name: 'Planet size', min: 0.3, max: 80,
-      fmt: v => `${fmtNum(v)}× Earth`, hint: 'Planet radius compared to Earth (1 = Earth)' },
-    { key: 'temp', name: 'Star temperature', min: 0.09, max: 10,
-      fmt: v => `${fmtNum(v)}× Sun`, hint: 'Compared to our Sun (1 = 5,772 K)' },
+    { group: 'Location' },
+    { key: 'dist', name: 'Distance from Earth', min: 4, max: 30000, scale: 'log', required: true,
+      get: p => p.dist, fmt: v => `${fmtNum(v)} ly`, hint: 'Light-years from Earth' },
+    { group: 'Planet' },
+    { key: 'size', name: 'Planet size', min: 0.3, max: 80, scale: 'log', required: true, ref: 1, refLabel: 'Earth',
+      get: p => p.size, fmt: v => `${fmtNum(v)}× Earth`, hint: 'Radius compared to Earth' },
+    { key: 'mass', name: 'Planet mass', min: 0.03, max: 13000, scale: 'log', ref: 1, refLabel: 'Earth',
+      get: p => p.raw.planet_mass_earths, fmt: v => `${fmtNum(v)}× Earth`, hint: 'Compared to Earth',
+      estimate: p => ['estimated from size', 'upper limit', 'lower limit'].includes(p.raw.planet_mass_source) },
+    { key: 'grav', name: 'Surface gravity', min: 0.03, max: 100, scale: 'log', ref: 1, refLabel: 'Earth',
+      get: p => p.raw.surface_gravity_earths, fmt: v => `${fmtNum(v)}× Earth`, hint: 'How heavy you would feel',
+      estimate: p => p.raw.surface_gravity_source === 'uses estimated values' },
+    { key: 'light', name: 'Starlight received', min: 0.001, max: 100000, scale: 'log', ref: 1, refLabel: 'Earth',
+      get: p => p.raw.starlight_earths, fmt: v => `${fmtNum(v)}× Earth`, hint: 'Energy from its star, compared to Earth' },
+    { group: 'Star' },
+    { key: 'temp', name: 'Star temperature', min: 0.09, max: 10, scale: 'log', required: true, ref: 1, refLabel: 'Sun',
+      get: p => p.temp, fmt: v => `${fmtNum(v)}× Sun`, hint: 'Compared to our Sun (5,772 K)' },
+    { key: 'age', name: 'Star age', min: 0, max: 14, scale: 'linear', ref: 4.6, refLabel: 'Sun',
+      get: p => p.raw.star_age_gyr, fmt: v => `${fmtNum(v)} billion yrs`, hint: 'Our Sun is 4.6 billion years old' },
   ];
+  const SLIDERS = FILTERS.filter(f => f.key);
   const STEPS = 1000;
-  const toVal = (f, t) => f.min * Math.pow(f.max / f.min, t / STEPS);
+  const toVal = (f, t) => f.scale === 'log' ? f.min * Math.pow(f.max / f.min, t / STEPS) : f.min + (f.max - f.min) * t / STEPS;
+  const toT = (f, v) => f.scale === 'log' ? STEPS * Math.log(v / f.min) / Math.log(f.max / f.min) : STEPS * (v - f.min) / (f.max - f.min);
   function fmtNum(v) {
+    if (v == null) return '–';
     if (v >= 1000) return Math.round(v).toLocaleString();
     if (v >= 100) return v.toFixed(0);
     if (v >= 10) return v.toFixed(1);
-    return v.toFixed(2);
+    if (v >= 0.01 || v === 0) return v.toFixed(2);
+    return v.toPrecision(2);
   }
 
   const state = { ranges: {}, planets: [], img: {}, cam: { s: 1, x: 0, y: 0 }, selected: null, hover: null, hidden: 0 };
@@ -152,23 +186,29 @@
   const filtersEl = document.getElementById('filters');
   FILTERS.forEach(f => {
     const el = document.createElement('div');
+    if (f.group) { el.className = 'group'; el.textContent = f.group; filtersEl.appendChild(el); return; }
     el.className = 'filter';
+    const refPct = f.ref != null ? toT(f, f.ref) / STEPS * 100 : null;
     el.innerHTML = `<div class="frow"><span class="fname">${f.name}</span><span class="fval"></span></div>
       <div class="range"><div class="track"></div><div class="fillbar"></div>
+      ${refPct != null ? `<div class="tick" style="left:${refPct}%"></div><div class="ticklbl" style="left:${refPct}%">${f.refLabel}</div>` : ''}
       <input type="range" min="0" max="${STEPS}" value="0" aria-label="${f.name} minimum">
       <input type="range" min="0" max="${STEPS}" value="${STEPS}" aria-label="${f.name} maximum"></div>
-      <div class="hint">${f.hint}</div>`;
+      <div class="hint"><span>${f.hint}</span>${f.estimate ? `<label class="est-toggle"><input type="checkbox"> Hide estimates</label>` : ''}</div>`;
     filtersEl.appendChild(el);
-    const [lo, hi] = el.querySelectorAll('input');
+    const [lo, hi] = el.querySelectorAll('.range input');
     const fill = el.querySelector('.fillbar'), label = el.querySelector('.fval');
-    f.ui = { lo, hi };
+    const est = el.querySelector('.est-toggle input');
+    f.ui = { lo, hi, est };
     const update = (moved) => {
       let a = +lo.value, b = +hi.value;
       if (a > b) { if (moved === lo) lo.value = a = b; else hi.value = b = a; }
-      state.ranges[f.key] = [toVal(f, a), toVal(f, b)];
+      f.active = a > 0 || b < STEPS;
+      f.lo = toVal(f, a); f.hi = toVal(f, b);
       fill.style.left = (a / STEPS * 100) + '%';
       fill.style.width = ((b - a) / STEPS * 100) + '%';
-      label.textContent = `${f.fmt(state.ranges[f.key][0])} – ${f.fmt(state.ranges[f.key][1])}`;
+      label.textContent = f.active ? `${f.fmt(f.lo)} – ${f.fmt(f.hi)}` : 'Any';
+      el.classList.toggle('idle', !f.active);
       // Keep the active handle on top so the two handles never get stuck under each other
       const loTop = moved === lo || a >= STEPS - 5;
       lo.style.zIndex = loTop ? 3 : 2; hi.style.zIndex = loTop ? 2 : 3;
@@ -176,27 +216,40 @@
     };
     lo.addEventListener('input', () => update(lo));
     hi.addEventListener('input', () => update(hi));
+    if (est) est.addEventListener('change', () => { applyFilters(); redraw(); });
     f.update = update;
   });
   document.getElementById('resetFilters').onclick = () => {
-    FILTERS.forEach(f => { f.ui.lo.value = 0; f.ui.hi.value = STEPS; f.update(); });
+    SLIDERS.forEach(f => { f.ui.lo.value = 0; f.ui.hi.value = STEPS; if (f.ui.est) f.ui.est.checked = false; f.update(); });
   };
   document.getElementById('legend').innerHTML = Object.entries(COLORS)
     .map(([k, c]) => `<span><i style="background:${c}"></i>${k}</span>`).join('');
 
   // ---------- Filtering ----------
+  // A planet is shown when, for every slider that is in use, it has a value inside the range
+  // (and, if "Hide estimates" is on, that value isn't an estimate). The ends of each slider
+  // are open: at the far left or right, values beyond the slider's range still count.
   function applyFilters() {
-    const [d0, d1] = state.ranges.dist || [0, Infinity];
-    const [s0, s1] = state.ranges.size || [0, Infinity];
-    const [t0, t1] = state.ranges.temp || [0, Infinity];
-    let match = 0;
+    let match = 0, noData = 0;
+    const active = SLIDERS.filter(f => f.active || (f.ui.est && f.ui.est.checked));
+    const names = new Set();
     for (const p of state.planets) {
-      p.match = p.dist >= d0 && p.dist <= d1 && p.size >= s0 && p.size <= s1 && p.temp >= t0 && p.temp <= t1;
-      if (p.match) match++;
+      let ok = true, missing = false;
+      for (const f of active) {
+        const v = f.get(p);
+        if (v == null) { ok = false; missing = true; names.add(f.name); continue; }
+        const loOK = +f.ui.lo.value === 0 || v >= f.lo, hiOK = +f.ui.hi.value === STEPS || v <= f.hi;
+        if (!loOK || !hiOK) ok = false;
+        if (f.ui.est && f.ui.est.checked && f.estimate(p)) ok = false;
+      }
+      p.match = ok;
+      if (ok) match++; else if (missing) noData++;
     }
+    state.matchCount = match;
     document.getElementById('counts').innerHTML =
       `<div><b>${match.toLocaleString()}</b> planets shown</div>` +
-      `<div>${state.hidden.toLocaleString()} hidden: missing planet size or star temperature</div>`;
+      (noData ? `<div>${noData.toLocaleString()} more hidden because they have no data for ${[...names].join(', ').toLowerCase()}</div>` : '') +
+      `<div>${state.hidden.toLocaleString()} always hidden: missing planet size or star temperature</div>`;
   }
 
   // ---------- Camera ----------
@@ -271,7 +324,20 @@
     const dim = Math.max(0, Math.min(1, Math.log2(screenPxPerImagePx / 3) / 3)) * 0.5;
     if (dim > 0) { ctx.fillStyle = `rgba(7,8,12,${dim})`; ctx.fillRect(0, 0, W, H); }
 
-    const r = dotRadius();
+    // When only a few planets match, draw them larger with a soft halo so they're easy to find
+    const few = state.matchCount <= 200;
+    const r = dotRadius() * (few ? 1.7 : 1);
+    if (few) {
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath();
+      for (const p of state.planets) {
+        if (!p.match) continue;
+        const [sx, sy] = toScreen(p.wx, p.wy);
+        if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;
+        ctx.moveTo(sx + r + 5, sy); ctx.arc(sx, sy, r + 5, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
     const order = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];
     ctx.lineWidth = 0.6; ctx.strokeStyle = 'rgba(0,0,0,0.75)';
     for (const group of order) {
@@ -393,10 +459,14 @@
       <dl>
         <dt>Distance from Earth</dt><dd>${fmtNum(p.dist)} ly</dd>
         <dt>Planet size</dt><dd>${fmtNum(p.size)}× Earth${est(r.planet_size_source)}</dd>
+        <dt>Planet mass</dt><dd>${r.planet_mass_earths == null ? nm : fmtNum(r.planet_mass_earths) + '× Earth'}${est(r.planet_mass_source)}</dd>
+        <dt>Surface gravity</dt><dd>${r.surface_gravity_earths == null ? nm : fmtNum(r.surface_gravity_earths) + '× Earth'}${est(r.surface_gravity_source)}</dd>
+        <dt>Starlight received</dt><dd>${r.starlight_earths == null ? nm : fmtNum(r.starlight_earths) + '× Earth'}${est(r.starlight_source)}</dd>
         <dt>Distance from its star</dt><dd>${r.star_distance_au == null ? nm : fmtNum(r.star_distance_au) + ' AU'}</dd>
         <dt>Star type</dt><dd>${r.star_type == null ? nm : r.star_type}${est(r.star_type_source)}</dd>
         <dt>Star temperature</dt><dd>${Math.round(r.star_temp_k).toLocaleString()} K<div class="est">${fmtNum(p.temp)}× Sun</div></dd>
         <dt>Star size</dt><dd>${r.star_size_suns == null ? nm : fmtNum(r.star_size_suns) + '× Sun'}</dd>
+        <dt>Star age</dt><dd>${r.star_age_gyr == null ? nm : fmtNum(r.star_age_gyr) + ' billion yrs'}${est(r.star_age_source)}</dd>
       </dl>${(() => {
         const sib = state.planets.filter(q => q !== p && q.raw.star_system === r.star_system);
         if (!sib.length) return '';
@@ -410,6 +480,15 @@
   // ---------- View buttons: shortcuts that zoom smoothly ----------
   const viewBtns = document.querySelectorAll('#views button');
   viewBtns.forEach(b => b.onclick = () => flyTo(camFor(b.dataset.view === 'solar' ? REGION : GALAXY_BOX)));
+  // Frame the Sun and every planet currently shown (at least 20 light-years across)
+  document.getElementById('zoomMatches').onclick = () => {
+    let x0 = SUN.x, x1 = SUN.x, y0 = SUN.y, y1 = SUN.y;
+    for (const p of state.planets) if (p.match) {
+      x0 = Math.min(x0, p.wx); x1 = Math.max(x1, p.wx); y0 = Math.min(y0, p.wy); y1 = Math.max(y1, p.wy);
+    }
+    const minW = 20 * PX_PER_LY, w = Math.max(x1 - x0, minW) * 1.15, h = Math.max(y1 - y0, minW) * 1.15;
+    flyTo(camFor({ x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h }));
+  };
   document.getElementById('resetView').onclick = () => flyTo(camFor(REGION));
   document.getElementById('collapse').onclick = e => {
     const pnl = document.getElementById('panel'); pnl.classList.toggle('min');
@@ -432,7 +511,7 @@
     document.getElementById('sub').textContent = `NASA Exoplanet Archive · downloaded ${data.nasa_download}`;
     document.getElementById('loading').remove();
     resize(); state.cam = camFor(REGION);
-    FILTERS.forEach(f => f.update());
+    SLIDERS.forEach(f => f.update());
     loadImg(REGION.src).then(i => { state.img.region = i; redraw(); });
   }).catch(err => { document.getElementById('loading').textContent = 'Could not load the map data: ' + err; });
 })();

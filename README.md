@@ -3,6 +3,7 @@
 A catalog of every confirmed exoplanet with a known distance, one entry per planet, built from NASA's data. It's the starting point for placing exoplanets on a map of the Milky Way.
 
 **Pass 1** covers five categories: position, planet size, distance from its star, star type, and star size.
+**Pass 2** adds four more for finding Earth-like planets: planet mass, starlight received, star age, and surface gravity.
 
 ## Current numbers
 
@@ -79,7 +80,34 @@ An empty cell means the value hasn't been measured. Wherever people will see the
 | `star_size_plus`, `star_size_minus` | Give-or-take range. |
 | `star_size_source` | `measured` or `not measured`. |
 
-## How complete each category is (pass 1)
+### 6. Planet mass (pass 2)
+| Field | Meaning |
+|---|---|
+| `planet_mass_earths` | Planet mass. Earth = 1. |
+| `planet_mass_plus`, `planet_mass_minus` | Give-or-take range. |
+| `planet_mass_source` | `measured`; `minimum mass` (the wobble method only gives a lower bound, so the true mass can be higher); `estimated from size` (NASA calculated it from the planet's size, so it adds no new information); `upper limit`; `lower limit`; or `not measured`. |
+
+### 7. Starlight received (pass 2)
+| Field | Meaning |
+|---|---|
+| `starlight_earths` | How much energy the planet gets from its star. Earth = 1. This is the best single test for the "habitable zone." |
+| `starlight_plus`, `starlight_minus` | Give-or-take range. |
+| `starlight_source` | `measured`, `calculated from star brightness and orbit`, or `not measured`. |
+
+### 8. Star age (pass 2)
+| Field | Meaning |
+|---|---|
+| `star_age_gyr` | Star age in billions of years. The Sun is 4.6. Star ages are rough. |
+| `star_age_plus`, `star_age_minus` | Give-or-take range. |
+| `star_age_source` | `measured`, `upper limit`, `lower limit`, or `not measured`. |
+
+### 9. Surface gravity (pass 2, calculated here)
+| Field | Meaning |
+|---|---|
+| `surface_gravity_earths` | How heavy you would feel standing on the planet. Earth = 1. Calculated by this project as mass ÷ size², both in Earth units. |
+| `surface_gravity_source` | `calculated from measured mass and size`; `calculated from minimum mass (true value may be higher)`; `uses estimated values` (the mass or the size was estimated, so this value isn't independent); or `not measured`. |
+
+## How complete each category is
 
 | Category | Measured | Estimated | Limit only | Not measured |
 |---|---|---|---|---|
@@ -88,6 +116,10 @@ An empty cell means the value hasn't been measured. Wherever people will see the
 | Distance from star | 5,915 | – | 4 | 497 |
 | Star type | 2,398 | 3,758 (from temperature) | – | 260 |
 | Star size | 6,089 | – | – | 327 |
+| Planet mass | 2,241 + 885 minimum mass | 3,022 (from size) | 237 | 31 |
+| Starlight received | 4,512 | 1,315 (calculated) | – | 589 |
+| Star age | 4,774 | – | 126 | 1,516 |
+| Surface gravity | 1,577 + 16 minimum mass | 4,750 (uses estimates) | – | 73 |
 
 ## Things to know
 
@@ -107,9 +139,11 @@ An empty cell means the value hasn't been measured. Wherever people will see the
 `web/index.html` shows the planets on top of a Milky Way image. The image and the planets are separate layers: the images are only backgrounds, and the planets are drawn by code from `web/data/planets_web.json`, so they can be filtered in real time.
 
 - **One continuous map:** the whole-galaxy image (`web/images/milky_way_full_1920.jpg`) is the base layer. The detailed image of the region around the Sun (`web/images/solar_region_20kly_4096.webp`, 20,000 light-years across, Sun at its exact center, with soft transparent edges) sits exactly on top of its spot and fades in as you zoom in, once the galaxy image starts to look blurry. Both are based on the ESA Gaia map by Stefan Payne-Wardenaar. The galaxy's center is up and the Sun's direction of travel is left. The "Near the Sun" and "Whole galaxy" buttons smoothly zoom to each view.
-- **Range sliders (two handles):** distance from Earth, planet size (× Earth), and star temperature (× our Sun, 5,772 K). The sliders use a log scale because the values span huge ranges.
-- **Planets shown:** 6,065. The other 351 are hidden because they're missing planet size or star temperature.
-- **Controls:** drag to pan, scroll or pinch to zoom, tap or click a planet for its details. Dot color shows how the planet was found.
+- **Range sliders (two handles), grouped as Location, Planet, and Star:** distance from Earth, planet size, planet mass, surface gravity, starlight received, star temperature (× our Sun, 5,772 K), and star age. Most use a log scale because the values span huge ranges. A white tick on each slider marks Earth's or the Sun's value. Slider ends are open: at the far left or right, values beyond the slider still count.
+- **Missing data:** distance, planet size, and star temperature are required, so 351 planets missing size or star temperature are never shown (6,065 are). For the other sliders, planets with no value are hidden only while that slider is in use, and the panel says how many.
+- **Hide estimates:** planet mass and surface gravity have a switch that hides estimated values. Minimum masses count as measured, but the detail card labels them, because the true mass can be higher.
+- **Zoom to shown planets:** frames the Sun and every planet currently shown. When 200 or fewer planets match, their dots are drawn larger with a soft halo.
+- **Controls:** drag to pan, scroll or pinch to zoom (down to 1 light-year = 20 px), tap or click a planet for its details, including other planets around the same star. A scale bar shows the distance on screen, and the background darkens once you zoom past the image's real detail. Dot color shows how the planet was found.
 
 To run it locally, serve the `web` folder (for example `python3 -m http.server` from inside `web/`) and open `index.html`. Opening the file directly won't load the data.
 
@@ -119,7 +153,7 @@ To swap a background image, replace the file and check the settings at the top o
 
 ## Next passes
 
-Planned: more sliders (distance from star, star size), more fields such as planet mass, density, and atmosphere readings, and a better way to handle planets with missing data.
+Ideas: more sliders (orbit shape, year length, density, number of planets in the system), an Earth Similarity Score, atmosphere readings, and a better way to handle planets with missing data.
 
 ## Credit
 
