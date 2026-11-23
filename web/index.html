@@ -13,8 +13,17 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; overflow: hidden; }
-  #map { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; display: block; }
-  #map.dragging { cursor: grabbing; }
+  #map { position: fixed; inset: 0; touch-action: none; }
+  #map canvas { position: absolute; left: 0; top: 0; display: block; }
+  #map canvas:first-child { cursor: grab; touch-action: none; }
+  #map canvas:first-child:active { cursor: grabbing; }
+  #map .overlay { pointer-events: none; }
+  #mapctl { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+  #mapctl button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--text); font: 600 16px/1 -apple-system, Segoe UI, sans-serif; cursor: pointer;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  #mapctl #tiltBtn { font-size: 13px; }
+  .howto { color: var(--muted); font-size: 11px; margin: -6px 0 12px; }
 
   #panel { position: fixed; top: 16px; left: 16px; width: 320px; max-height: calc(100% - 32px); overflow-y: auto;
     background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 16px 12px;
@@ -84,11 +93,17 @@
     #panel.min .body { display: none; }
     #collapse { display: block; position: absolute; right: 12px; top: 10px; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; }
     #card { left: 12px; right: 12px; top: 12px; width: auto; }
+    #mapctl { top: 12px; bottom: auto; }
   }
 </style>
 </head>
 <body>
-<canvas id="map"></canvas>
+<div id="map"></div>
+<div id="mapctl">
+  <button id="zoomIn" aria-label="Zoom in">+</button>
+  <button id="zoomOut" aria-label="Zoom out">−</button>
+  <button id="tiltBtn" aria-label="Tilt the map">3D</button>
+</div>
 <div id="loading">Loading map…</div>
 
 <div id="panel">
@@ -100,6 +115,7 @@
       <button data-view="solar" class="on">Near the Sun (20,000 ly)</button>
       <button data-view="full">Whole galaxy</button>
     </div>
+    <div class="howto">Drag to move · Scroll or pinch to zoom · Right-drag, Ctrl-drag, or two-finger drag to tilt</div>
     <div id="filters"></div>
     <div class="counts" id="counts"></div>
     <div class="legend" id="legend"></div>
@@ -114,28 +130,36 @@
 <div id="card"><button class="x" id="cardClose" aria-label="Close">×</button><div id="cardBody"></div></div>
 <div id="tip"></div>
 
-<script>
-(() => {
-  // ---------- One shared map space ----------
-  // World units = pixels of the whole-galaxy image (1920 x 1920).
-  // Planet positions are stored in light-years with the Sun at 0,0:
-  // x_ly points toward the galaxy's center (up), y_ly points the way the Sun travels (left).
-  const GALAXY = { src: 'images/milky_way_full_1920.jpg', w: 1920, h: 1920 };
-  const SUN = { x: 957.7, y: 1320.7 };                 // Sun 378 px below the galaxy center
-  const PX_PER_LY = 378 / (8.2 * 3261.56);              // Sun-to-center = 8.2 kpc
-  const REGION_LY = 20000;                               // the detailed image covers 20,000 ly
-  const REGION_W = REGION_LY * PX_PER_LY;                // its width in world units (about 283)
-  const REGION = { src: 'images/solar_region_20kly_4096.webp',
-                   x: SUN.x - REGION_W / 2, y: SUN.y - REGION_W / 2, w: REGION_W, h: REGION_W };
-  // The detailed image fades in once the galaxy image starts to look blurry:
-  // starts when the region is ~280 px wide on screen, fully visible at ~700 px.
-  const FADE_START = 280, FADE_END = 700;
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from 'three';
+import { MapControls } from './vendor/three/controls/MapControls.js';
+{
+  // ---------- 3D map space ----------
+  // World units are light-years, with the Sun at 0,0,0. The galaxy lies flat on the X–Z plane.
+  // Planet data: x_ly points to the galaxy's center, y_ly the way the Sun travels, z_ly up out of the disk.
+  // On the map the galaxy's center is "up" (−Z), the Sun's direction of travel is left (−X),
+  // and height above the disk is +Y.  So: world = (−y_ly, z_ly, −x_ly).
+  const PX_PER_LY = 378 / (8.2 * 3261.56);            // galaxy image: Sun 378 px below center; 8.2 kpc
+  const GALAXY = { src: 'images/milky_way_full_1920.jpg', size: 1920 / PX_PER_LY,
+                   cx: (960 - 957.7) / PX_PER_LY, cz: (960 - 1320.7) / PX_PER_LY };
+  const REGION = { src: 'images/solar_region_20kly_4096.webp', size: 20000, px: 4096 };
+  // The detailed image fades in once the galaxy image starts to look blurry
+  const FADE_START = 280, FADE_END = 700;                // region width on screen, in device pixels
+  const MAX_PX_PER_LY = 20;                              // closest zoom: 1 light-year = 20 px
+  const MAX_TILT = 60 * Math.PI / 180;                   // camera can tilt from top-down to 60°
+  const FOV = 40;
 
   const COLORS = {
     'Transit': '#55dcff', 'Radial Velocity': '#ffc83c', 'Imaging': '#9dff78',
     'Microlensing': '#ff5ac8', 'Other': '#ffffff'
   };
   const colorFor = m => COLORS[m] || COLORS.Other;
+
+
+  const state = { planets: [], hidden: 0, selected: null, hover: null, filterVer: 0 };
+  let dirty = true;
+  const redraw = () => { dirty = true; };
 
   // ---------- Sliders ----------
   // Two handles each. Most use a log scale because the values span huge ranges.
@@ -177,11 +201,6 @@
     if (v >= 0.01 || v === 0) return trim(v.toFixed(2));
     return trim(v.toPrecision(2));
   }
-
-  const state = { ranges: {}, planets: [], img: {}, cam: { s: 1, x: 0, y: 0 }, selected: null, hover: null, hidden: 0 };
-  const canvas = document.getElementById('map');
-  const ctx = canvas.getContext('2d');
-  let dpr = 1;
 
   // ---------- Build slider UI ----------
   const filtersEl = document.getElementById('filters');
@@ -252,188 +271,244 @@
       `<div><b>${match.toLocaleString()}</b> planets shown</div>` +
       (noData ? `<div>${noData.toLocaleString()} more hidden because they have no data for ${[...names].join(', ').toLowerCase()}</div>` : '') +
       `<div>${state.hidden.toLocaleString()} always hidden: missing planet size or star temperature</div>`;
+    state.filterVer++;
   }
 
-  // ---------- Camera ----------
-  const viewSize = () => {
-    const W = canvas.width / dpr, H = canvas.height / dpr, wide = innerWidth > 700;
-    const left = wide ? 352 : 0, bottom = wide ? 0 : Math.min(H * 0.45, 330);
-    return { W, H, left, availW: W - left, availH: H - bottom };
-  };
-  // Camera that fits a box (in world units) into the open part of the screen
-  function camFor(box) {
-    const v = viewSize();
-    const s = Math.min(v.availW / box.w, v.availH / box.h) * 0.96;
-    return { s, x: v.left + (v.availW - box.w * s) / 2 - box.x * s, y: (v.availH - box.h * s) / 2 - box.y * s };
+
+  // ---------- Renderer, camera, controls ----------
+  const mapEl = document.getElementById('map');
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x000000);   // matches the black around the galaxy image
+  mapEl.appendChild(renderer.domElement);
+  const overlay = document.createElement('canvas'); overlay.className = 'overlay';
+  mapEl.appendChild(overlay);
+  const octx = overlay.getContext('2d');
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 1, 1e7);
+  const controls = new MapControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.12;
+  controls.zoomToCursor = true; controls.zoomSpeed = 1.3;
+  controls.minPolarAngle = 0; controls.maxPolarAngle = MAX_TILT;      // tilt limits
+  controls.minAzimuthAngle = 0; controls.maxAzimuthAngle = 0;         // no spinning: galaxy center stays up
+  controls.rotateSpeed = 0.6;
+
+  // The open map area is the part of the screen not covered by the panel. The camera's
+  // center line is aimed at the middle of that area, so the orbit point sits there.
+  const view = { W: 1, H: 1, left: 0, bottom: 0, fullW: 1, fullH: 1 };
+  function layout() {
+    const W = innerWidth, H = innerHeight, wide = W > 700;
+    const panel = document.getElementById('panel');
+    view.W = W; view.H = H;
+    view.left = wide ? 352 : 0;
+    view.bottom = wide ? 0 : Math.min(panel.getBoundingClientRect().height, H * 0.5);
+    view.fullW = W + view.left; view.fullH = H + view.bottom;
+    renderer.setSize(W, H);
+    const dpr = renderer.getPixelRatio();
+    overlay.width = W * dpr; overlay.height = H * dpr; overlay.style.width = W + 'px'; overlay.style.height = H + 'px';
+    camera.aspect = view.fullW / view.fullH;
+    // Window into a bigger virtual view whose center is the center of the open area
+    camera.setViewOffset(view.fullW, view.fullH, 0, view.bottom, W, H);
+    const tanHalf = Math.tan(FOV * Math.PI / 360);
+    controls.minDistance = view.fullH / (2 * tanHalf * MAX_PX_PER_LY);
+    controls.maxDistance = fitDistance(GALAXY.size * 1.6);
+    dirty = true;
   }
-  const GALAXY_BOX = { x: 0, y: 0, w: GALAXY.w, h: GALAXY.h };
-  const toScreen = (wx, wy) => [wx * state.cam.s + state.cam.x, wy * state.cam.s + state.cam.y];
-  const minScale = () => camFor(GALAXY_BOX).s * 0.5;
-  const maxScale = () => 20 / PX_PER_LY;  // closest zoom: 1 light-year = 20 screen px
-  function zoomAt(sx, sy, factor) {
-    const c = state.cam;
-    const ns = Math.max(minScale(), Math.min(c.s * factor, maxScale()));
-    const k = ns / c.s;
-    c.x = sx - (sx - c.x) * k; c.y = sy - (sy - c.y) * k; c.s = ns;
+  const tanHalf = () => Math.tan(FOV * Math.PI / 360);
+  // Distance at which a square of `size` light-years fits the open area
+  function fitDistance(size) {
+    const openW = view.W - view.left, openH = view.H - view.bottom;
+    const pxPerLy = Math.min(openW, openH) * 0.96 / size;
+    return view.fullH / (2 * tanHalf() * pxPerLy);
   }
-  // Smooth fly-to for the view buttons (zooms on a log scale so it feels even)
-  let anim = 0;
-  function flyTo(target, ms = 900) {
-    cancelAnimationFrame(anim);
-    const from = { ...state.cam }, t0 = performance.now();
-    const v = viewSize(), cx = v.left + v.availW / 2, cy = v.availH / 2;
-    const wf = [(cx - from.x) / from.s, (cy - from.y) / from.s], wt = [(cx - target.x) / target.s, (cy - target.y) / target.s];
-    const step = now => {
-      let t = Math.min(1, (now - t0) / ms); t = t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      const s = from.s * Math.pow(target.s / from.s, t);
-      const wx = wf[0] + (wt[0] - wf[0]) * t, wy = wf[1] + (wt[1] - wf[1]) * t;
-      state.cam = { s, x: cx - wx * s, y: cy - wy * s };
-      draw(); if (t < 1) anim = requestAnimationFrame(step);
-    };
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { state.cam = target; draw(); }
-    else anim = requestAnimationFrame(step);
+  const camDist = () => camera.position.distanceTo(controls.target);
+  const pxPerLy = () => view.fullH / (2 * tanHalf() * camDist());   // scale at the orbit point
+  const tilt = () => { const o = camera.position.clone().sub(controls.target); return Math.acos(Math.min(1, o.y / o.length())); };
+
+  // Keep the orbit point on the galaxy
+  controls.addEventListener('change', () => {
+    const t = controls.target, h = GALAXY.size / 2;
+    const cx = Math.max(GALAXY.cx - h, Math.min(GALAXY.cx + h, t.x)), cz = Math.max(GALAXY.cz - h, Math.min(GALAXY.cz + h, t.z));
+    if (cx !== t.x || cz !== t.z) { camera.position.x += cx - t.x; camera.position.z += cz - t.z; t.x = cx; t.z = cz; }
+    dirty = true;
+  });
+
+  // ---------- Background images ----------
+  const loader = new THREE.TextureLoader();
+  function imagePlane(src, size, cx, cz, order, transparent) {
+    const tex = loader.load(src, () => { dirty = true; });
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent, depthTest: false, depthWrite: false });
+    const geo = new THREE.PlaneGeometry(size, size); geo.rotateX(-Math.PI / 2);   // image top → galaxy center (−Z)
+    const mesh = new THREE.Mesh(geo, mat); mesh.position.set(cx, 0, cz); mesh.renderOrder = order;
+    scene.add(mesh); return mat;
+  }
+  const galaxyMat = imagePlane(GALAXY.src, GALAXY.size, GALAXY.cx, GALAXY.cz, 0, false);
+  const regionMat = imagePlane(REGION.src, REGION.size, 0, 0, 1, true);
+
+  // ---------- Planets: dots at their real 3D positions, plus height lines when tilted ----------
+  const srgb = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
+  const pointMat = new THREE.ShaderMaterial({
+    uniforms: { uSize: { value: 4 }, uDpr: { value: 1 } },
+    vertexShader: `attribute vec3 rgb; varying vec3 vRgb; uniform float uSize;
+      void main() { vRgb = rgb; gl_PointSize = uSize; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying vec3 vRgb; uniform float uSize; uniform float uDpr;
+      void main() {
+        float d = length(gl_PointCoord * 2.0 - 1.0);
+        if (d > 1.0) discard;
+        float rim = 1.0 - (0.7 * uDpr) / (uSize * 0.5);   // thin dark outline, about 0.7 px
+        gl_FragColor = d > rim ? vec4(0.0, 0.0, 0.0, 0.75) : vec4(vRgb, 1.0);
+      }`,
+    transparent: true, depthTest: false, depthWrite: false,
+  });
+  const pointGeo = new THREE.BufferGeometry();
+  const points = new THREE.Points(pointGeo, pointMat); points.renderOrder = 3; points.frustumCulled = false; scene.add(points);
+  const stemMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
+  const stemGeo = new THREE.BufferGeometry();
+  const stems = new THREE.LineSegments(stemGeo, stemMat); stems.renderOrder = 2; stems.frustumCulled = false; scene.add(stems);
+  const ORDER = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];   // drawn last = on top
+  let shown = [];
+  function rebuildPlanets() {
+    shown = state.planets.filter(p => p.match).sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group));
+    const pos = new Float32Array(shown.length * 3), rgb = new Float32Array(shown.length * 3);
+    const spos = new Float32Array(shown.length * 6), scol = new Float32Array(shown.length * 6);
+    const c = new THREE.Color();
+    shown.forEach((p, i) => {
+      pos.set([p.wx, p.wy, p.wz], i * 3); rgb.set(p.rgb, i * 3);
+      spos.set([p.wx, 0, p.wz, p.wx, p.wy, p.wz], i * 6);
+      c.setStyle(colorFor(p.group)); scol.set([c.r, c.g, c.b, c.r, c.g, c.b], i * 6);
+    });
+    pointGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    pointGeo.setAttribute('rgb', new THREE.BufferAttribute(rgb, 3));
+    stemGeo.setAttribute('position', new THREE.BufferAttribute(spos, 3));
+    stemGeo.setAttribute('color', new THREE.BufferAttribute(scol, 3));
+    dirty = true;
   }
 
-  // ---------- Drawing ----------
-  const regionOpacity = () => {
-    const w = REGION.w * state.cam.s;
-    const t = Math.max(0, Math.min(1, (w - FADE_START) / (FADE_END - FADE_START)));
-    return t * t * (3 - 2 * t);
-  };
-  // Dot size: small, growing slightly only when zoomed in close
-  const dotRadius = () => {
-    const k = REGION.w * state.cam.s;   // on-screen width of the 20,000 ly region
-    return Math.max(1.2, Math.min(3, 1.2 + 0.65 * Math.log2(Math.max(1, k / 860))));
-  };
+  // ---------- Per-frame updates ----------
+  const v3 = new THREE.Vector3();
+  function project(x, y, z) {          // world → screen px (null if behind the camera)
+    v3.set(x, y, z).project(camera);
+    if (v3.z > 1) return null;
+    return [(v3.x + 1) / 2 * view.W, (1 - v3.y) / 2 * view.H];
+  }
+  const dotRadius = k => Math.max(1.2, Math.min(3, 1.2 + 0.65 * Math.log2(Math.max(1, k / 860))));
+  let lastRegionOpacity = 1;
+  function render() {
+    const d = camDist();
+    camera.near = Math.max(0.05, d * 0.005); camera.far = d * 20 + GALAXY.size * 2;
+    camera.updateProjectionMatrix();
+    const ppl = pxPerLy(), regionW = REGION.size * ppl;
+    // Fade the detailed image in as you zoom toward the Sun
+    const regionDevPx = regionW * renderer.getPixelRatio();   // phones have 2–3 device pixels per point
+    let a = Math.max(0, Math.min(1, (regionDevPx - FADE_START) / (FADE_END - FADE_START))); a = a * a * (3 - 2 * a);
+    regionMat.opacity = a; regionMat.visible = a > 0; lastRegionOpacity = a;
+    // Past the detail image's real resolution, darken the blurry background
+    const dim = Math.max(0, Math.min(1, Math.log2((regionDevPx / REGION.px) / 3) / 3)) * 0.5;
+    galaxyMat.color.setScalar(1 - dim); regionMat.color.setScalar(1 - dim);
+    // Dot size (screen px), and height lines that appear as you tilt
+    const r = dotRadius(regionW);
+    pointMat.uniforms.uSize.value = (r + 0.6) * 2 * renderer.getPixelRatio();
+    pointMat.uniforms.uDpr.value = renderer.getPixelRatio();
+    const t = tilt() / MAX_TILT;
+    stemMat.opacity = Math.max(0, Math.min(1, (t - 0.05) / 0.3)) * 0.2; stems.visible = stemMat.opacity > 0;
+    renderer.render(scene, camera);
+    drawOverlay(ppl, r);
+    viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === (a > 0.5)));
+    document.getElementById('tiltBtn').textContent = tilt() > 0.05 ? '2D' : '3D';
+  }
 
-  function draw() {
-    const W = canvas.width / dpr, H = canvas.height / dpr, c = state.cam;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#07080c'; ctx.fillRect(0, 0, W, H);
-    ctx.imageSmoothingQuality = 'high';
-    if (state.img.galaxy) ctx.drawImage(state.img.galaxy, c.x, c.y, GALAXY.w * c.s, GALAXY.h * c.s);
-    const a = regionOpacity();
-    if (state.img.region && a > 0) {
-      ctx.globalAlpha = a;
-      const [rx, ry] = toScreen(REGION.x, REGION.y);
-      ctx.drawImage(state.img.region, rx, ry, REGION.w * c.s, REGION.h * c.s);
-      ctx.globalAlpha = 1;
-    }
-    // Past the detail image's real resolution the background is just a blur,
-    // so darken it gradually to keep the dots easy to read.
-    const screenPxPerImagePx = REGION.w * c.s / 4096;
-    const dim = Math.max(0, Math.min(1, Math.log2(screenPxPerImagePx / 3) / 3)) * 0.5;
-    if (dim > 0) { ctx.fillStyle = `rgba(7,8,12,${dim})`; ctx.fillRect(0, 0, W, H); }
-
-    const r = dotRadius();
-    const order = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];
-    ctx.lineWidth = 0.6; ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-    for (const group of order) {
-      ctx.fillStyle = colorFor(group);
-      ctx.beginPath();
-      for (const p of state.planets) {
-        if (!p.match || p.group !== group) continue;
-        const [sx, sy] = toScreen(p.wx, p.wy);
-        if (sx < -10 || sy < -10 || sx > W + 10 || sy > H + 10) continue;
-        ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2);
-      }
-      ctx.stroke(); ctx.fill();
-    }
-    // Scale bar (bottom right): a round number of light-years, 60–150 px long
-    {
-      const pxPerLyScreen = PX_PER_LY * c.s;
-      let ly = 1; const steps = [1, 2, 5];
-      outer: for (let e = 0; e < 7; e++) for (const m of steps) { ly = m * 10 ** e; if (ly * pxPerLyScreen >= 60) break outer; }
-      const len = ly * pxPerLyScreen, v = viewSize();
-      const bx = v.left + v.availW - len - 24, by = v.availH - 28;
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(bx, by - 5); ctx.lineTo(bx, by); ctx.lineTo(bx + len, by); ctx.lineTo(bx + len, by - 5); ctx.stroke();
-      ctx.font = '600 12px -apple-system, Segoe UI, sans-serif'; ctx.textAlign = 'center';
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.fillStyle = '#fff';
-      const lbl = `${ly.toLocaleString()} light-year${ly === 1 ? '' : 's'}`;
-      ctx.strokeText(lbl, bx + len / 2, by - 9); ctx.fillText(lbl, bx + len / 2, by - 9); ctx.textAlign = 'start';
-    }
-    // The Sun
-    const [sx, sy] = toScreen(SUN.x, SUN.y);
-    ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff';
-    ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sx, sy, 1.8, 0, Math.PI * 2); ctx.fill();
-    ctx.font = '600 12px -apple-system, Segoe UI, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)';
-    ctx.strokeText('Sun', sx + 11, sy + 4); ctx.fillText('Sun', sx + 11, sy + 4);
+  // Sun marker, selection rings and scale bar, drawn flat on top of the 3D view
+  function drawOverlay(ppl, r) {
+    const dpr = renderer.getPixelRatio();
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0); octx.clearRect(0, 0, view.W, view.H);
+    octx.font = '600 12px -apple-system, Segoe UI, sans-serif';
     // Hovered and selected planets
     for (const [p, col] of [[state.hover, 'rgba(255,255,255,.7)'], [state.selected, '#fff']]) {
       if (!p || !p.match) continue;
-      const [px, py] = toScreen(p.wx, p.wy);
-      ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(px, py, r + 4, 0, Math.PI * 2); ctx.stroke();
+      const s = project(p.wx, p.wy, p.wz); if (!s) continue;
+      octx.strokeStyle = col; octx.lineWidth = 1.5; octx.beginPath(); octx.arc(s[0], s[1], r + 4, 0, Math.PI * 2); octx.stroke();
     }
-    // Keep the view buttons in sync with what's on screen
-    const near = a > 0.5;
-    viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === near));
+    // The Sun
+    const sun = project(0, 0, 0);
+    if (sun) {
+      octx.lineWidth = 1.5; octx.strokeStyle = '#fff';
+      octx.beginPath(); octx.arc(sun[0], sun[1], 7, 0, Math.PI * 2); octx.stroke();
+      octx.fillStyle = '#fff'; octx.beginPath(); octx.arc(sun[0], sun[1], 1.8, 0, Math.PI * 2); octx.fill();
+      octx.lineWidth = 3; octx.strokeStyle = 'rgba(0,0,0,.85)';
+      octx.strokeText('Sun', sun[0] + 11, sun[1] + 4); octx.fillText('Sun', sun[0] + 11, sun[1] + 4);
+    }
+    // Scale bar: a round number of light-years, 60–150 px long (measured at the map's center)
+    let ly = 1;
+    outer: for (let e = 0; e < 7; e++) for (const m of [1, 2, 5]) { ly = m * 10 ** e; if (ly * ppl >= 60) break outer; }
+    const lbl = `${ly.toLocaleString()} light-year${ly === 1 ? '' : 's'}${tilt() > 0.05 ? ' (at center)' : ''}`;
+    const len = ly * ppl, room = Math.max(len, octx.measureText(lbl).width);
+    const bx = view.W - 72 - room / 2 - len / 2, by = view.H - view.bottom - 28;
+    octx.strokeStyle = '#fff'; octx.lineWidth = 2;
+    octx.beginPath(); octx.moveTo(bx, by - 5); octx.lineTo(bx, by); octx.lineTo(bx + len, by); octx.lineTo(bx + len, by - 5); octx.stroke();
+    octx.textAlign = 'center'; octx.lineWidth = 3; octx.strokeStyle = 'rgba(0,0,0,.85)'; octx.fillStyle = '#fff';
+    octx.strokeText(lbl, bx + len / 2, by - 9); octx.fillText(lbl, bx + len / 2, by - 9); octx.textAlign = 'start';
   }
-  let raf = 0; const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
 
-  function resize() {
-    dpr = window.devicePixelRatio || 1;
-    canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
-    canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
+  let lastVer = -1;
+  function tick() {
+    const moved = controls.update();
+    if (state.filterVer !== lastVer) { lastVer = state.filterVer; rebuildPlanets(); }
+    if (moved || dirty) { dirty = false; render(); }
+    requestAnimationFrame(tick);
   }
 
-  // ---------- Finding the planet under the pointer ----------
-  function pick(sx, sy, maxDist = 10) {
+  // ---------- Smooth camera moves (view buttons, zoom buttons, 2D/3D) ----------
+  let anim = 0;
+  function flyTo({ x = controls.target.x, z = controls.target.z, dist = camDist(), phi = tilt() }, ms = 900) {
+    cancelAnimationFrame(anim);
+    const from = { x: controls.target.x, z: controls.target.z, dist: camDist(), phi: tilt() }, t0 = performance.now();
+    dist = Math.max(controls.minDistance, Math.min(controls.maxDistance, dist));
+    const set = (X, Z, D, P) => {
+      controls.target.set(X, 0, Z);
+      camera.position.set(X, D * Math.cos(P), Z + D * Math.sin(P) + 1e-6 * D);
+      controls.update(); dirty = true;
+    };
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { set(x, z, dist, phi); return; }
+    const step = now => {
+      let t = Math.min(1, (now - t0) / ms); t = t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      set(from.x + (x - from.x) * t, from.z + (z - from.z) * t,
+          from.dist * Math.pow(dist / from.dist, t), from.phi + (phi - from.phi) * t);
+      if (t < 1) anim = requestAnimationFrame(step);
+    };
+    anim = requestAnimationFrame(step);
+  }
+  renderer.domElement.addEventListener('pointerdown', () => cancelAnimationFrame(anim));
+  renderer.domElement.addEventListener('wheel', () => cancelAnimationFrame(anim), { passive: true });
+
+  // ---------- Hover and tap ----------
+  function pick(sx, sy, maxDist) {
     let best = null, bd = maxDist * maxDist;
-    for (const p of state.planets) {
-      if (!p.match) continue;
-      const [px, py] = toScreen(p.wx, p.wy);
-      const d = (px - sx) ** 2 + (py - sy) ** 2;
-      if (d < bd) { bd = d; best = p; }
+    for (const p of shown) {
+      const s = project(p.wx, p.wy, p.wz); if (!s) continue;
+      const dd = (s[0] - sx) ** 2 + (s[1] - sy) ** 2;
+      if (dd < bd) { bd = dd; best = p; }
     }
     return best;
   }
-
-  // ---------- Pointer input: drag to pan, wheel or pinch to zoom, tap for details ----------
-  const pointers = new Map(); let dragStart = null, moved = false, pinch = null;
   const tip = document.getElementById('tip');
-  canvas.addEventListener('pointerdown', e => {
-    cancelAnimationFrame(anim);
-    canvas.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    moved = false;
-    if (pointers.size === 1) dragStart = { x: e.clientX, y: e.clientY, cx: state.cam.x, cy: state.cam.y };
-    if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: state.cam.s }; }
-    canvas.classList.add('dragging');
+  let down = null;
+  renderer.domElement.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, n: (down?.n || 0) + 1 }; });
+  renderer.domElement.addEventListener('pointerup', e => {
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5 && e.button === 0)
+      select(pick(e.clientX, e.clientY, e.pointerType === 'touch' ? 22 : 10));
+    down = null;
   });
-  canvas.addEventListener('pointermove', e => {
-    if (!pointers.has(e.pointerId)) {
-      const p = pick(e.clientX, e.clientY);
-      if (p !== state.hover) { state.hover = p; redraw(); }
-      if (p) { tip.style.display = 'block'; tip.textContent = p.name; tip.style.left = (e.clientX + 12) + 'px'; tip.style.top = (e.clientY + 12) + 'px'; }
-      else tip.style.display = 'none';
-      return;
-    }
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.size === 2 && pinch) {
-      const [a, b] = [...pointers.values()];
-      zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, (pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d) / state.cam.s);
-      moved = true; redraw();
-    } else if (pointers.size === 1 && dragStart) {
-      const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
-      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
-      state.cam.x = dragStart.cx + dx; state.cam.y = dragStart.cy + dy; redraw();
-    }
+  renderer.domElement.addEventListener('pointermove', e => {
+    if (e.buttons || e.pointerType === 'touch') { tip.style.display = 'none'; return; }
+    const p = pick(e.clientX, e.clientY, 10);
+    if (p !== state.hover) { state.hover = p; dirty = true; }
+    if (p) { tip.style.display = 'block'; tip.textContent = p.name; tip.style.left = (e.clientX + 12) + 'px'; tip.style.top = (e.clientY + 12) + 'px'; }
+    else tip.style.display = 'none';
   });
-  const end = e => {
-    const wasTap = pointers.size === 1 && !moved;
-    pointers.delete(e.pointerId);
-    if (pointers.size < 2) pinch = null;
-    if (pointers.size === 1) { const [a] = [...pointers.values()]; dragStart = { x: a.x, y: a.y, cx: state.cam.x, cy: state.cam.y }; }
-    if (pointers.size === 0) { dragStart = null; canvas.classList.remove('dragging'); }
-    if (wasTap && e.type === 'pointerup') select(pick(e.clientX, e.clientY, e.pointerType === 'touch' ? 22 : 10));
-  };
-  canvas.addEventListener('pointerup', end);
-  canvas.addEventListener('pointercancel', end);
-  canvas.addEventListener('pointerleave', () => { tip.style.display = 'none'; if (state.hover) { state.hover = null; redraw(); } });
-  canvas.addEventListener('wheel', e => { e.preventDefault(); cancelAnimationFrame(anim); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015)); redraw(); }, { passive: false });
+  renderer.domElement.addEventListener('pointerleave', () => { tip.style.display = 'none'; if (state.hover) { state.hover = null; dirty = true; } });
 
   // ---------- Detail card ----------
   const nm = '<span class="est">Not measured</span>';
@@ -466,44 +541,53 @@
   }
   document.getElementById('cardClose').onclick = () => select(null);
 
-  // ---------- View buttons: shortcuts that zoom smoothly ----------
+
+  // ---------- Buttons ----------
   const viewBtns = document.querySelectorAll('#views button');
-  viewBtns.forEach(b => b.onclick = () => flyTo(camFor(b.dataset.view === 'solar' ? REGION : GALAXY_BOX)));
+  const nearView = () => ({ x: 0, z: 0, dist: fitDistance(REGION.size) });
+  const galaxyView = () => ({ x: GALAXY.cx, z: GALAXY.cz, dist: fitDistance(GALAXY.size) });
+  viewBtns.forEach(b => b.onclick = () => flyTo(b.dataset.view === 'solar' ? nearView() : galaxyView()));
+  document.getElementById('resetView').onclick = () => flyTo({ ...nearView(), phi: 0 });
+  document.getElementById('zoomIn').onclick = () => flyTo({ dist: camDist() / 2 }, 400);
+  document.getElementById('zoomOut').onclick = () => flyTo({ dist: camDist() * 2 }, 400);
+  document.getElementById('tiltBtn').onclick = () => flyTo({ phi: tilt() > 0.05 ? 0 : 45 * Math.PI / 180 }, 700);
   // Frame the Sun and every planet currently shown (at least 20 light-years across)
   document.getElementById('zoomMatches').onclick = () => {
-    let x0 = SUN.x, x1 = SUN.x, y0 = SUN.y, y1 = SUN.y;
+    let x0 = 0, x1 = 0, z0 = 0, z1 = 0;
     for (const p of state.planets) if (p.match) {
-      x0 = Math.min(x0, p.wx); x1 = Math.max(x1, p.wx); y0 = Math.min(y0, p.wy); y1 = Math.max(y1, p.wy);
+      x0 = Math.min(x0, p.wx); x1 = Math.max(x1, p.wx); z0 = Math.min(z0, p.wz); z1 = Math.max(z1, p.wz);
     }
-    const minW = 20 * PX_PER_LY, w = Math.max(x1 - x0, minW) * 1.15, h = Math.max(y1 - y0, minW) * 1.15;
-    flyTo(camFor({ x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h }));
+    const size = Math.max(x1 - x0, z1 - z0, 20) * 1.15;
+    flyTo({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, dist: fitDistance(size) });
   };
-  document.getElementById('resetView').onclick = () => flyTo(camFor(REGION));
   document.getElementById('collapse').onclick = e => {
     const pnl = document.getElementById('panel'); pnl.classList.toggle('min');
     e.target.textContent = pnl.classList.contains('min') ? 'Show filters' : 'Hide';
+    layout();
   };
-  window.addEventListener('resize', () => { resize(); redraw(); });
+  window.addEventListener('resize', layout);
 
-  // ---------- Load data and images ----------
-  const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
-  Promise.all([fetch('data/planets_web.json').then(r => r.json()), loadImg(GALAXY.src)]).then(([data, galaxyImg]) => {
-    state.img.galaxy = galaxyImg;
+  // ---------- Load data ----------
+  fetch('data/planets_web.json').then(r => r.json()).then(data => {
     const F = data.fields;
     state.hidden = data.planets_hidden_missing_data;
     state.planets = data.planets.map(row => {
       const r = Object.fromEntries(F.map((f, i) => [f, row[i]]));
-      return { name: r.planet_name, method: r.found_by, group: COLORS[r.found_by] ? r.found_by : 'Other',
+      const group = COLORS[r.found_by] ? r.found_by : 'Other';
+      return { name: r.planet_name, method: r.found_by, group, rgb: srgb(colorFor(group)),
                dist: r.distance_ly, size: r.planet_size_earths, temp: r.star_temp_k / data.sun_temp_k, raw: r,
-               wx: SUN.x - r.y_ly * PX_PER_LY, wy: SUN.y - r.x_ly * PX_PER_LY };
+               wx: -r.y_ly, wy: r.z_ly, wz: -r.x_ly };
     });
     document.getElementById('sub').textContent = `NASA Exoplanet Archive · downloaded ${data.nasa_download}`;
     document.getElementById('loading').remove();
-    resize(); state.cam = camFor(REGION);
+    layout();
+    const v = nearView();
+    controls.target.set(0, 0, 0); camera.position.set(0, v.dist, 1e-6 * v.dist); controls.update();
     SLIDERS.forEach(f => f.update());
-    loadImg(REGION.src).then(i => { state.img.region = i; redraw(); });
+    tick();
   }).catch(err => { document.getElementById('loading').textContent = 'Could not load the map data: ' + err; });
-})();
+}
 </script>
+
 </body>
 </html>

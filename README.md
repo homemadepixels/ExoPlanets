@@ -138,18 +138,21 @@ An empty cell means the value hasn't been measured. Wherever people will see the
 
 `web/index.html` shows the planets on top of a Milky Way image. The image and the planets are separate layers: the images are only backgrounds, and the planets are drawn by code from `web/data/planets_web.json`, so they can be filtered in real time.
 
-- **One continuous map:** the whole-galaxy image (`web/images/milky_way_full_1920.jpg`) is the base layer. The detailed image of the region around the Sun (`web/images/solar_region_20kly_4096.webp`, 20,000 light-years across, Sun at its exact center, with soft transparent edges) sits exactly on top of its spot and fades in as you zoom in, once the galaxy image starts to look blurry. Both are based on the ESA Gaia map by Stefan Payne-Wardenaar. The galaxy's center is up and the Sun's direction of travel is left. The "Near the Sun" and "Whole galaxy" buttons smoothly zoom to each view.
+- **3D map:** built with Three.js (included in `web/vendor/three/`, version 0.170.0, MIT license), so the page needs no outside website. The galaxy lies flat, and each planet sits at its real 3D position, including its height above or below the galaxy's disk (`z_ly`). When you tilt the camera, thin lines drop from each planet to the galaxy plane to show its height.
+- **Camera rules:** the camera always orbits the point at the center of the open map area (the part not covered by the panel). It tilts from top-down (0°) to 60°, which stops 30° short of a side view, and it never spins, so the galaxy's center always stays "up." It zooms toward the cursor, from the whole galaxy down to 1 light-year = 20 px.
+- **Two background images:** the whole-galaxy image (`web/images/milky_way_full_1920.jpg`) is the base layer. The detailed image of the region around the Sun (`web/images/solar_region_20kly_4096.webp`, 20,000 light-years across, Sun at its exact center, with soft transparent edges) sits exactly on top of its spot and fades in as you zoom in, once the galaxy image starts to look blurry (measured in real device pixels, so phones behave like desktops). Both are based on the ESA Gaia map by Stefan Payne-Wardenaar. The "Near the Sun" and "Whole galaxy" buttons smoothly fly to each view.
 - **Range sliders (two handles), grouped as Location, Planet, and Star:** distance from Earth, planet size, planet mass, surface gravity, starlight received, star temperature (× our Sun, 5,772 K), and star age. Most use a log scale because the values span huge ranges. A white tick on each slider marks Earth's or the Sun's value. Slider ends are open: at the far left or right, values beyond the slider still count.
 - **Missing data:** distance, planet size, and star temperature are required, so 351 planets missing size or star temperature are never shown (6,065 are). For the other sliders, planets with no value are hidden only while that slider is in use, and the panel says how many.
 - **Hide estimates:** planet mass and surface gravity have a switch that hides estimated values. Minimum masses count as measured, but the detail card labels them, because the true mass can be higher.
 - **Zoom to shown planets:** frames the Sun and every planet currently shown.
-- **Controls:** drag to pan, scroll or pinch to zoom (down to 1 light-year = 20 px), tap or click a planet for its details, including other planets around the same star. A scale bar shows the distance on screen, and the background darkens once you zoom past the image's real detail. Dot color shows how the planet was found.
+- **Controls (like Google or Apple Maps):** drag to pan; scroll or pinch to zoom; right-drag, Ctrl-drag, or two-finger drag to tilt. On-screen buttons: + and − zoom, and 3D/2D switches between tilted (45°) and top-down. Tap or click a planet for its details, including other planets around the same star.
+- **On-screen guides:** a scale bar shows distance (measured at the map's center when tilted), and the background darkens once you zoom past the image's real detail. Dot color shows how the planet was found.
 
 To run it locally, serve the `web` folder (for example `python3 -m http.server` from inside `web/`) and open `index.html`. Opening the file directly won't load the data.
 
 After rebuilding the catalog, run `python3 scripts/build_web_data.py` to refresh the map's data.
 
-To swap a background image, replace the file and check the settings at the top of the script in `web/index.html` (`GALAXY`, `SUN`, `PX_PER_LY`, `REGION_LY`). The detailed image must stay centered on the Sun and cover exactly 20,000 light-years, or `REGION_LY` must be changed to match.
+To swap a background image, replace the file and check the settings at the top of the script in `web/index.html` (`PX_PER_LY`, `GALAXY`, `REGION`). The detailed image must stay centered on the Sun and cover exactly 20,000 light-years, or `REGION.size` must be changed to match.
 
 ## Next passes
 
