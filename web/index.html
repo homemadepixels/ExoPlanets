@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ExoPlanets Map</title>
+<style>
+  :root {
+    --bg: #07080c; --panel: rgba(14,16,24,0.92); --line: rgba(255,255,255,0.12);
+    --text: #e9e7f2; --muted: #9a97ab; --accent: #ffffff;
+    --track: rgba(255,255,255,0.16); --fill: #c9b8ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; overflow: hidden; }
+  #map { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; display: block; }
+  #map.dragging { cursor: grabbing; }
+
+  #panel { position: fixed; top: 16px; left: 16px; width: 320px; max-height: calc(100% - 32px); overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 16px 12px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: .02em; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  .seg { display: flex; background: rgba(255,255,255,0.06); border-radius: 9px; padding: 3px; margin-bottom: 14px; }
+  .seg button { flex: 1; border: 0; background: transparent; color: var(--muted); padding: 7px 6px; border-radius: 7px;
+    font: inherit; font-size: 12px; cursor: pointer; }
+  .seg button.on { background: rgba(255,255,255,0.14); color: var(--text); }
+
+  .filter { margin-bottom: 14px; }
+  .frow { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .fname { font-weight: 600; font-size: 13px; }
+  .fval { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .range { position: relative; height: 26px; }
+  .range .track, .range .fillbar { position: absolute; top: 11px; height: 4px; border-radius: 2px; }
+  .range .track { left: 0; right: 0; background: var(--track); }
+  .range .fillbar { background: var(--fill); }
+  .range input { position: absolute; left: 0; top: 0; width: 100%; height: 26px; margin: 0; background: none;
+    -webkit-appearance: none; appearance: none; pointer-events: none; }
+  .range input::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 18px; height: 18px;
+    border-radius: 50%; background: #fff; border: 2px solid var(--fill); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+  .range input::-moz-range-thumb { pointer-events: auto; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    border: 2px solid var(--fill); cursor: pointer; }
+  .range input::-webkit-slider-runnable-track { background: none; }
+  .range input::-moz-range-track { background: none; }
+  .hint { color: var(--muted); font-size: 11px; margin-top: 1px; }
+
+  .counts { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12px; color: var(--muted); }
+  .counts b { color: var(--text); font-size: 14px; }
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin: 10px 0 8px; font-size: 12px; }
+  .legend span { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 1.5px #000; }
+  .btns { display: flex; gap: 8px; margin-top: 8px; }
+  .btns button { flex: 1; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px;
+    padding: 7px; font: inherit; font-size: 12px; cursor: pointer; }
+  #collapse { display: none; }
+
+  #card { position: fixed; right: 16px; top: 16px; width: 280px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 16px; display: none; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  #card h2 { font-size: 15px; margin: 0 0 2px; padding-right: 22px; }
+  #card .sys { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  #card dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 12.5px; }
+  #card dt { color: var(--muted); }
+  #card dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  #card .est { color: var(--muted); font-size: 11px; }
+  #card .x { position: absolute; right: 10px; top: 8px; background: none; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; }
+
+  #tip { position: fixed; pointer-events: none; background: rgba(0,0,0,.8); border: 1px solid var(--line); color: var(--text);
+    padding: 4px 8px; border-radius: 6px; font-size: 12px; display: none; white-space: nowrap; }
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+
+  @media (max-width: 700px) {
+    #panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; border-radius: 14px 14px 0 0; max-height: 45%; padding: 12px 14px; }
+    #panel.min .body { display: none; }
+    #collapse { display: block; position: absolute; right: 12px; top: 10px; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; }
+    #card { left: 12px; right: 12px; top: 12px; width: auto; }
+  }
+</style>
+</head>
+<body>
+<canvas id="map"></canvas>
+<div id="loading">Loading map…</div>
+
+<div id="panel">
+  <button id="collapse">Hide</button>
+  <h1>Exoplanets around the Sun</h1>
+  <div class="sub" id="sub">NASA Exoplanet Archive</div>
+  <div class="body">
+    <div class="seg" id="views">
+      <button data-view="solar" class="on">Near the Sun (20,000 ly)</button>
+      <button data-view="full">Whole galaxy</button>
+    </div>
+    <div id="filters"></div>
+    <div class="counts" id="counts"></div>
+    <div class="legend" id="legend"></div>
+    <div class="btns">
+      <button id="resetFilters">Reset sliders</button>
+      <button id="resetView">Reset view</button>
+    </div>
+  </div>
+</div>
+
+<div id="card"><button class="x" id="cardClose" aria-label="Close">×</button><div id="cardBody"></div></div>
+<div id="tip"></div>
+
+<script>
+(() => {
+  // ---------- Map setup: how each background image lines up with real space ----------
+  // Planet positions are stored in light-years with the Sun at 0,0.
+  // x_ly points toward the galaxy's center (up on screen), y_ly points the way the
+  // Sun travels around the galaxy (left on screen).
+  const VIEWS = {
+    solar: { src: 'images/solar_region_20kly_4096.jpg', w: 4096, h: 4096,
+             sunX: 2048, sunY: 2048, pxPerLy: 4096 / 20000 },
+    full:  { src: 'images/milky_way_full_1920.jpg', w: 1920, h: 1920,
+             // Sun 378 px below the galaxy center; Sun-to-center = 8.2 kpc = 26,745 ly
+             sunX: 957.7, sunY: 1320.7, pxPerLy: 378 / (8.2 * 3261.56) },
+  };
+  const COLORS = {
+    'Transit': '#55dcff', 'Radial Velocity': '#ffc83c', 'Imaging': '#9dff78',
+    'Microlensing': '#ff5ac8', 'Other': '#ffffff'
+  };
+  const colorFor = m => COLORS[m] || COLORS.Other;
+
+  // ---------- Sliders: two handles each, log scale because values span huge ranges ----------
+  const FILTERS = [
+    { key: 'dist', name: 'Distance from Earth', min: 4, max: 30000,
+      fmt: v => `${fmtNum(v)} ly`, hint: 'Light-years from Earth' },
+    { key: 'size', name: 'Planet size', min: 0.3, max: 80,
+      fmt: v => `${fmtNum(v)}× Earth`, hint: 'Planet radius compared to Earth (1 = Earth)' },
+    { key: 'temp', name: 'Star temperature', min: 0.09, max: 10,
+      fmt: v => `${fmtNum(v)}× Sun`, hint: 'Compared to our Sun (1 = 5,772 K)' },
+  ];
+  const STEPS = 1000;
+  const toVal = (f, t) => f.min * Math.pow(f.max / f.min, t / STEPS);
+  function fmtNum(v) {
+    if (v >= 1000) return Math.round(v).toLocaleString();
+    if (v >= 100) return v.toFixed(0);
+    if (v >= 10) return v.toFixed(1);
+    return v.toFixed(2);
+  }
+
+  const state = { view: 'solar', ranges: {}, planets: [], images: {}, cam: { s: 1, x: 0, y: 0 }, selected: null, hover: null };
+  const canvas = document.getElementById('map');
+  const ctx = canvas.getContext('2d');
+  let dpr = 1;
+
+  // ---------- Build slider UI ----------
+  const filtersEl = document.getElementById('filters');
+  FILTERS.forEach(f => {
+    const el = document.createElement('div');
+    el.className = 'filter';
+    el.innerHTML = `<div class="frow"><span class="fname">${f.name}</span><span class="fval"></span></div>
+      <div class="range"><div class="track"></div><div class="fillbar"></div>
+      <input type="range" min="0" max="${STEPS}" value="0" aria-label="${f.name} minimum">
+      <input type="range" min="0" max="${STEPS}" value="${STEPS}" aria-label="${f.name} maximum"></div>
+      <div class="hint">${f.hint}</div>`;
+    filtersEl.appendChild(el);
+    const [lo, hi] = el.querySelectorAll('input');
+    const fill = el.querySelector('.fillbar'), label = el.querySelector('.fval');
+    f.ui = { lo, hi, fill, label };
+    const update = (moved) => {
+      let a = +lo.value, b = +hi.value;
+      if (a > b) { if (moved === lo) lo.value = a = b; else hi.value = b = a; }
+      state.ranges[f.key] = [toVal(f, a), toVal(f, b)];
+      fill.style.left = (a / STEPS * 100) + '%';
+      fill.style.width = ((b - a) / STEPS * 100) + '%';
+      label.textContent = `${f.fmt(state.ranges[f.key][0])} – ${f.fmt(state.ranges[f.key][1])}`;
+      // Keep the active thumb on top so handles never get stuck under each other
+      lo.style.zIndex = (moved === lo || a >= STEPS - 5) ? 3 : 2; hi.style.zIndex = lo.style.zIndex == 3 ? 2 : 3;
+      applyFilters(); draw();
+    };
+    lo.addEventListener('input', () => update(lo));
+    hi.addEventListener('input', () => update(hi));
+    f.update = update;
+  });
+  document.getElementById('resetFilters').onclick = () => {
+    FILTERS.forEach(f => { f.ui.lo.value = 0; f.ui.hi.value = STEPS; f.update(); });
+  };
+
+  // ---------- Legend ----------
+  document.getElementById('legend').innerHTML = Object.entries(COLORS)
+    .map(([k, c]) => `<span><i style="background:${c}"></i>${k}</span>`).join('');
+
+  // ---------- Filtering ----------
+  let counts = { match: 0, inView: 0 };
+  function applyFilters() {
+    const [d0, d1] = state.ranges.dist || [0, Infinity];
+    const [s0, s1] = state.ranges.size || [0, Infinity];
+    const [t0, t1] = state.ranges.temp || [0, Infinity];
+    const v = VIEWS[state.view];
+    let match = 0, inView = 0;
+    for (const p of state.planets) {
+      p.match = p.dist >= d0 && p.dist <= d1 && p.size >= s0 && p.size <= s1 && p.temp >= t0 && p.temp <= t1;
+      p.inImage = p[state.view].x >= 0 && p[state.view].x <= v.w && p[state.view].y >= 0 && p[state.view].y <= v.h;
+      if (p.match) { match++; if (p.inImage) inView++; }
+    }
+    counts = { match, inView };
+    renderCounts();
+  }
+  function renderCounts() {
+    const outside = counts.match - counts.inView;
+    document.getElementById('counts').innerHTML =
+      `<div><b>${counts.inView.toLocaleString()}</b> planets shown</div>` +
+      (outside ? `<div>${outside.toLocaleString()} more match but are outside this image${state.view === 'solar' ? ' (see Whole galaxy)' : ''}</div>` : '') +
+      `<div>${state.hidden.toLocaleString()} hidden: missing planet size or star temperature</div>`;
+  }
+
+  // ---------- Camera: pan and zoom ----------
+  function fitView() {
+    const v = VIEWS[state.view];
+    const W = canvas.width / dpr, H = canvas.height / dpr;
+    const panelW = window.innerWidth > 700 ? 352 : 0;
+    const panelH = window.innerWidth > 700 ? 0 : Math.min(H * 0.45, 330);
+    const availW = W - panelW, availH = H - panelH;
+    const s = Math.min(availW / v.w, availH / v.h) * 0.96;
+    state.cam = { s, x: panelW + (availW - v.w * s) / 2, y: (availH - v.h * s) / 2 };
+  }
+  const toScreen = (ix, iy) => [ix * state.cam.s + state.cam.x, iy * state.cam.s + state.cam.y];
+  function zoomAt(sx, sy, factor) {
+    const c = state.cam, v = VIEWS[state.view];
+    const ns = Math.max(minScale(), Math.min(c.s * factor, 40 * (4096 / v.w)));
+    const k = ns / c.s;
+    c.x = sx - (sx - c.x) * k; c.y = sy - (sy - c.y) * k; c.s = ns;
+  }
+  const minScale = () => { const v = VIEWS[state.view]; return Math.min(canvas.width / dpr / v.w, canvas.height / dpr / v.h) * 0.25; };
+
+  // ---------- Drawing ----------
+  function draw() {
+    const W = canvas.width / dpr, H = canvas.height / dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#07080c'; ctx.fillRect(0, 0, W, H);
+    const v = VIEWS[state.view], img = state.images[state.view], c = state.cam;
+    if (img) { ctx.imageSmoothingQuality = 'high'; ctx.drawImage(img, c.x, c.y, v.w * c.s, v.h * c.s); }
+
+    // Dots grow a little as you zoom in, but stay small enough to separate crowds
+    const r = Math.max(1.6, Math.min(5, 1.6 + Math.log2(1 + c.s * v.w / 1200)));
+    const order = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];
+    for (const group of order) {
+      ctx.fillStyle = colorFor(group);
+      ctx.beginPath();
+      for (const p of state.planets) {
+        if (!p.match || !p.inImage) continue;
+        const g = COLORS[p.method] ? p.method : 'Other';
+        if (g !== group) continue;
+        const [sx, sy] = toScreen(p[state.view].x, p[state.view].y);
+        if (sx < -10 || sy < -10 || sx > W + 10 || sy > H + 10) continue;
+        ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      }
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.lineWidth = 1; ctx.stroke(); ctx.fill();
+    }
+    // The Sun
+    const [sx, sy] = toScreen(v.sunX, v.sunY);
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff';
+    ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '600 12px -apple-system, Segoe UI, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.85)';
+    ctx.strokeText('Sun', sx + 12, sy + 4); ctx.fillText('Sun', sx + 12, sy + 4);
+    // Selected and hovered planets
+    for (const [p, col] of [[state.hover, 'rgba(255,255,255,.7)'], [state.selected, '#fff']]) {
+      if (!p || !p.match || !p.inImage) continue;
+      const [px, py] = toScreen(p[state.view].x, p[state.view].y);
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(px, py, r + 5, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  let raf = 0; const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+    canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
+  }
+
+  // ---------- Finding the planet under the pointer ----------
+  function pick(sx, sy, maxDist = 12) {
+    let best = null, bd = maxDist * maxDist;
+    for (const p of state.planets) {
+      if (!p.match || !p.inImage) continue;
+      const [px, py] = toScreen(p[state.view].x, p[state.view].y);
+      const d = (px - sx) ** 2 + (py - sy) ** 2;
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+
+  // ---------- Pointer input: drag to pan, wheel or pinch to zoom, tap for details ----------
+  const pointers = new Map(); let dragStart = null, moved = false, pinch = null;
+  canvas.addEventListener('pointerdown', e => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    moved = false;
+    if (pointers.size === 1) dragStart = { x: e.clientX, y: e.clientY, cx: state.cam.x, cy: state.cam.y };
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: state.cam.s };
+    }
+    canvas.classList.add('dragging');
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!pointers.has(e.pointerId)) {           // hover only
+      const p = pick(e.clientX, e.clientY);
+      if (p !== state.hover) { state.hover = p; redraw(); }
+      const tip = document.getElementById('tip');
+      if (p) { tip.style.display = 'block'; tip.textContent = p.name; tip.style.left = (e.clientX + 12) + 'px'; tip.style.top = (e.clientY + 12) + 'px'; }
+      else tip.style.display = 'none';
+      return;
+    }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2 && pinch) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, (pinch.s * d / pinch.d) / state.cam.s);
+      moved = true; redraw();
+    } else if (pointers.size === 1 && dragStart) {
+      const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+      state.cam.x = dragStart.cx + dx; state.cam.y = dragStart.cy + dy; redraw();
+    }
+  });
+  const end = e => {
+    const wasTap = pointers.size === 1 && !moved;
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 1) { const [a] = [...pointers.values()]; dragStart = { x: a.x, y: a.y, cx: state.cam.x, cy: state.cam.y }; }
+    if (pointers.size === 0) { dragStart = null; canvas.classList.remove('dragging'); }
+    if (wasTap && e.type === 'pointerup') select(pick(e.clientX, e.clientY, e.pointerType === 'touch' ? 22 : 12));
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('pointerleave', () => { document.getElementById('tip').style.display = 'none'; if (state.hover) { state.hover = null; redraw(); } });
+  canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015)); redraw(); }, { passive: false });
+
+  // ---------- Detail card ----------
+  const nm = '<span class="est">Not measured</span>';
+  function select(p) {
+    state.selected = p; redraw();
+    const card = document.getElementById('card');
+    if (!p) { card.style.display = 'none'; return; }
+    const r = p.raw;
+    const est = s => (s && s !== 'measured') ? `<div class="est">${s}</div>` : '';
+    document.getElementById('cardBody').innerHTML = `
+      <h2>${p.name}</h2><div class="sys">Star system: ${r.star_system} · Found by ${p.method}</div>
+      <dl>
+        <dt>Distance from Earth</dt><dd>${fmtNum(p.dist)} ly</dd>
+        <dt>Planet size</dt><dd>${fmtNum(p.size)}× Earth${est(r.planet_size_source)}</dd>
+        <dt>Distance from its star</dt><dd>${r.star_distance_au == null ? nm : fmtNum(r.star_distance_au) + ' AU'}</dd>
+        <dt>Star type</dt><dd>${r.star_type == null ? nm : r.star_type}${est(r.star_type_source)}</dd>
+        <dt>Star temperature</dt><dd>${Math.round(r.star_temp_k).toLocaleString()} K<div class="est">${fmtNum(p.temp)}× Sun</div></dd>
+        <dt>Star size</dt><dd>${r.star_size_suns == null ? nm : fmtNum(r.star_size_suns) + '× Sun'}</dd>
+      </dl>`;
+    card.style.display = 'block';
+  }
+  document.getElementById('cardClose').onclick = () => select(null);
+
+  // ---------- View toggle ----------
+  document.querySelectorAll('#views button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#views button').forEach(x => x.classList.toggle('on', x === b));
+    state.view = b.dataset.view; fitView(); applyFilters(); draw();
+  });
+  document.getElementById('resetView').onclick = () => { fitView(); draw(); };
+  document.getElementById('collapse').onclick = e => {
+    const pnl = document.getElementById('panel'); pnl.classList.toggle('min');
+    e.target.textContent = pnl.classList.contains('min') ? 'Show filters' : 'Hide';
+  };
+  window.addEventListener('resize', () => { resize(); fitView(); draw(); });
+
+  // ---------- Load data and images ----------
+  const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+  Promise.all([fetch('data/planets_web.json').then(r => r.json()), loadImg(VIEWS.solar.src)]).then(([data, solarImg]) => {
+    state.images.solar = solarImg;
+    const F = data.fields;
+    state.hidden = data.planets_hidden_missing_data;
+    state.planets = data.planets.map(row => {
+      const r = Object.fromEntries(F.map((f, i) => [f, row[i]]));
+      const p = { name: r.planet_name, method: r.found_by, dist: r.distance_ly, size: r.planet_size_earths,
+                  temp: r.star_temp_k / data.sun_temp_k, raw: r };
+      for (const [k, v] of Object.entries(VIEWS)) p[k] = { x: v.sunX - r.y_ly * v.pxPerLy, y: v.sunY - r.x_ly * v.pxPerLy };
+      return p;
+    });
+    document.getElementById('sub').textContent = `NASA Exoplanet Archive · downloaded ${data.nasa_download}`;
+    document.getElementById('loading').remove();
+    resize(); fitView();
+    FILTERS.forEach(f => f.update());
+    loadImg(VIEWS.full.src).then(i => { state.images.full = i; if (state.view === 'full') draw(); });
+  }).catch(err => { document.getElementById('loading').textContent = 'Could not load the map data: ' + err; });
+})();
+</script>
+</body>
+</html>

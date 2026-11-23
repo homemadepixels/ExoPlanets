@@ -102,9 +102,24 @@ An empty cell means the value hasn't been measured. Wherever people will see the
 3. From the repo root, run `python3 scripts/build_catalog.py` (needs Python with pandas).
 4. Update the numbers at the top of this file.
 
+## Interactive map (`web/`)
+
+`web/index.html` shows the planets on top of a Milky Way image. The image and the planets are separate layers: the images are only backgrounds, and the planets are drawn by code from `web/data/planets_web.json`, so they can be filtered in real time.
+
+- **Two views:** "Near the Sun" (`web/images/solar_region_20kly_4096.jpg`, 20,000 light-years across, Sun at the exact center) and "Whole galaxy" (`web/images/milky_way_full_1920.jpg`, Sun 378 px below the galaxy center). Both are based on the ESA Gaia map by Stefan Payne-Wardenaar. In both, the galaxy's center is up and the Sun's direction of travel is left.
+- **Range sliders (two handles):** distance from Earth, planet size (× Earth), and star temperature (× our Sun, 5,772 K). The sliders use a log scale because the values span huge ranges.
+- **Planets shown:** 6,065. The other 351 are hidden because they're missing planet size or star temperature.
+- **Controls:** drag to pan, scroll or pinch to zoom, tap or click a planet for its details. Dot color shows how the planet was found.
+
+To run it locally, serve the `web` folder (for example `python3 -m http.server` from inside `web/`) and open `index.html`. Opening the file directly won't load the data.
+
+After rebuilding the catalog, run `python3 scripts/build_web_data.py` to refresh the map's data.
+
+To swap a background image, replace the file and update its settings (size, Sun position, pixels per light-year) in the `VIEWS` section at the top of the script in `web/index.html`.
+
 ## Next passes
 
-Planned: placing planets on a Gaia-based Milky Way image (waiting on a closer image), then more fields such as planet mass, density, and atmosphere readings.
+Planned: more sliders (distance from star, star size), more fields such as planet mass, density, and atmosphere readings, and a better way to handle the planets outside the "Near the Sun" image.
 
 ## Credit
 
