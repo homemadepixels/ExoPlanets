@@ -434,7 +434,7 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     const t = tilt() / MAX_TILT;
     stemMat.opacity = Math.max(0, Math.min(1, (t - 0.05) / 0.3)) * 0.2; stems.visible = stemMat.opacity > 0;
     footMat.uniforms.uOpacity.value = stemMat.opacity; feet.visible = stems.visible;
-    footMat.uniforms.uSize.value = 3 * renderer.getPixelRatio();      // about 3 px across
+    footMat.uniforms.uSize.value = 5 * renderer.getPixelRatio();      // 5 px across
     renderer.render(scene, camera);
     drawOverlay(ppl, r);
     viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === (a > 0.5)));
