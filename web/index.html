@@ -372,6 +372,17 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const stemMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
   const stemGeo = new THREE.BufferGeometry();
   const stems = new THREE.LineSegments(stemGeo, stemMat); stems.renderOrder = 2; stems.frustumCulled = false; scene.add(stems);
+  // Small dots where each height line meets the galaxy plane (same color and fade as the lines)
+  const footMat = new THREE.ShaderMaterial({
+    uniforms: { uSize: { value: 3 }, uOpacity: { value: 0 } },
+    vertexShader: `attribute vec3 rgb; varying vec3 vRgb; uniform float uSize;
+      void main() { vRgb = rgb; gl_PointSize = uSize; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying vec3 vRgb; uniform float uOpacity;
+      void main() { if (length(gl_PointCoord * 2.0 - 1.0) > 1.0) discard; gl_FragColor = vec4(vRgb, uOpacity); }`,
+    transparent: true, depthTest: false, depthWrite: false,
+  });
+  const footGeo = new THREE.BufferGeometry();
+  const feet = new THREE.Points(footGeo, footMat); feet.renderOrder = 2; feet.frustumCulled = false; scene.add(feet);
   const ORDER = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];   // drawn last = on top
   let shown = [];
   function rebuildPlanets() {
@@ -388,6 +399,10 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     pointGeo.setAttribute('rgb', new THREE.BufferAttribute(rgb, 3));
     stemGeo.setAttribute('position', new THREE.BufferAttribute(spos, 3));
     stemGeo.setAttribute('color', new THREE.BufferAttribute(scol, 3));
+    const fpos = new Float32Array(shown.length * 3);
+    shown.forEach((p, i) => fpos.set([p.wx, 0, p.wz], i * 3));
+    footGeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
+    footGeo.setAttribute('rgb', new THREE.BufferAttribute(rgb, 3));
     dirty = true;
   }
 
@@ -418,6 +433,8 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     pointMat.uniforms.uDpr.value = renderer.getPixelRatio();
     const t = tilt() / MAX_TILT;
     stemMat.opacity = Math.max(0, Math.min(1, (t - 0.05) / 0.3)) * 0.2; stems.visible = stemMat.opacity > 0;
+    footMat.uniforms.uOpacity.value = stemMat.opacity; feet.visible = stems.visible;
+    footMat.uniforms.uSize.value = 3 * renderer.getPixelRatio();      // about 3 px across
     renderer.render(scene, camera);
     drawOverlay(ppl, r);
     viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === (a > 0.5)));
