@@ -106,7 +106,7 @@ An empty cell means the value hasn't been measured. Wherever people will see the
 
 `web/index.html` shows the planets on top of a Milky Way image. The image and the planets are separate layers: the images are only backgrounds, and the planets are drawn by code from `web/data/planets_web.json`, so they can be filtered in real time.
 
-- **Two views:** "Near the Sun" (`web/images/solar_region_20kly_4096.jpg`, 20,000 light-years across, Sun at the exact center) and "Whole galaxy" (`web/images/milky_way_full_1920.jpg`, Sun 378 px below the galaxy center). Both are based on the ESA Gaia map by Stefan Payne-Wardenaar. In both, the galaxy's center is up and the Sun's direction of travel is left.
+- **One continuous map:** the whole-galaxy image (`web/images/milky_way_full_1920.jpg`) is the base layer. The detailed image of the region around the Sun (`web/images/solar_region_20kly_4096.webp`, 20,000 light-years across, Sun at its exact center, with soft transparent edges) sits exactly on top of its spot and fades in as you zoom in, once the galaxy image starts to look blurry. Both are based on the ESA Gaia map by Stefan Payne-Wardenaar. The galaxy's center is up and the Sun's direction of travel is left. The "Near the Sun" and "Whole galaxy" buttons smoothly zoom to each view.
 - **Range sliders (two handles):** distance from Earth, planet size (× Earth), and star temperature (× our Sun, 5,772 K). The sliders use a log scale because the values span huge ranges.
 - **Planets shown:** 6,065. The other 351 are hidden because they're missing planet size or star temperature.
 - **Controls:** drag to pan, scroll or pinch to zoom, tap or click a planet for its details. Dot color shows how the planet was found.
@@ -115,11 +115,11 @@ To run it locally, serve the `web` folder (for example `python3 -m http.server` 
 
 After rebuilding the catalog, run `python3 scripts/build_web_data.py` to refresh the map's data.
 
-To swap a background image, replace the file and update its settings (size, Sun position, pixels per light-year) in the `VIEWS` section at the top of the script in `web/index.html`.
+To swap a background image, replace the file and check the settings at the top of the script in `web/index.html` (`GALAXY`, `SUN`, `PX_PER_LY`, `REGION_LY`). The detailed image must stay centered on the Sun and cover exactly 20,000 light-years, or `REGION_LY` must be changed to match.
 
 ## Next passes
 
-Planned: more sliders (distance from star, star size), more fields such as planet mass, density, and atmosphere readings, and a better way to handle the planets outside the "Near the Sun" image.
+Planned: more sliders (distance from star, star size), more fields such as planet mass, density, and atmosphere readings, and a better way to handle planets with missing data.
 
 ## Credit
 
