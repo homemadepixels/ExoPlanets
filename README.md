@@ -146,6 +146,7 @@ An empty cell means the value hasn't been measured. Wherever people will see the
 - **Hide estimates:** planet mass and surface gravity have a switch that hides estimated values. Minimum masses count as measured, but the detail card labels them, because the true mass can be higher.
 - **Zoom to shown planets:** frames the Sun and every planet currently shown.
 - **Controls (like Google or Apple Maps):** drag to pan; scroll or pinch to zoom; right-drag or Ctrl-drag to tilt (up and down) and turn (left and right); on touch, two fingers tilt and turn. On-screen buttons: compass (galaxy center up), + and − zoom, and 3D/2D switches between tilted (45°) and top-down. Tap or click a planet for its details, including other planets around the same star.
+- **Depth cueing:** like Softimage's viewport, the planet nearest the camera keeps its full color and the farthest planet on screen is 35% darker, with everything between in proportion. The range is measured from the planets currently on screen, so it works the same zoomed in or out. Nothing ever gets darker than 65% brightness.
 - **On-screen guides:** a scale bar shows distance (measured at the map's center when tilted), and the background darkens once you zoom past the image's real detail. Dot color shows how the planet was found.
 
 To run it locally, serve the `web` folder (for example `python3 -m http.server` from inside `web/`) and open `index.html`. Opening the file directly won't load the data.

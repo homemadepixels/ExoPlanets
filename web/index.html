@@ -152,6 +152,10 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const MAX_PX_PER_LY = 20;                              // closest zoom: 1 light-year = 20 px
   const MAX_TILT = 60 * Math.PI / 180;                   // camera can tilt from top-down to 60°
   const FOV = 40;
+  // Depth cueing (like Softimage): the nearest planet on screen keeps full color, the farthest
+  // planet on screen is darkened by this amount, and everything between is in proportion.
+  // The range is recalculated from whatever is visible, so it works at any zoom.
+  const DEPTH_DIM = 0.35;                                 // farthest visible planet = 65% brightness
 
   const COLORS = {
     'Transit': '#55dcff', 'Radial Velocity': '#ffc83c', 'Imaging': '#9dff78',
@@ -355,9 +359,14 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   // ---------- Planets: dots at their real 3D positions, plus height lines when tilted ----------
   const srgb = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
   const pointMat = new THREE.ShaderMaterial({
-    uniforms: { uSize: { value: 4 }, uDpr: { value: 1 } },
-    vertexShader: `attribute vec3 rgb; varying vec3 vRgb; uniform float uSize;
-      void main() { vRgb = rgb; gl_PointSize = uSize; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    uniforms: { uSize: { value: 4 }, uDpr: { value: 1 }, uNear: { value: 0 }, uFar: { value: 1 }, uDim: { value: DEPTH_DIM } },
+    vertexShader: `attribute vec3 rgb; varying vec3 vRgb; uniform float uSize, uNear, uFar, uDim;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        float t = clamp((length(mv.xyz) - uNear) / max(uFar - uNear, 1e-6), 0.0, 1.0);
+        vRgb = rgb * (1.0 - uDim * t);                    // never darker than (1 - uDim)
+        gl_PointSize = uSize; gl_Position = projectionMatrix * mv;
+      }`,
     fragmentShader: `varying vec3 vRgb; uniform float uSize; uniform float uDpr;
       void main() {
         float d = length(gl_PointCoord * 2.0 - 1.0);
@@ -445,6 +454,18 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     stemMat.opacity = fadeIn * 0.6; stems.visible = fadeIn > 0;           // lines: 60% at full strength
     footMat.uniforms.uOpacity.value = fadeIn * 0.4; feet.visible = stems.visible;           // rings: 40% at full strength
     footMat.uniforms.uScale.value = 5 / ppl;        // ring radius in light-years = 5 px at the map's center (10 px across)
+    // Depth cueing range: nearest and farthest planet currently on screen
+    camera.updateMatrixWorld();
+    const camPos = camera.position;
+    let near = Infinity, far = 0;
+    for (const p of shown) {
+      v3.set(p.wx, p.wy, p.wz).project(camera);
+      if (v3.z > 1 || v3.x < -1 || v3.x > 1 || v3.y < -1 || v3.y > 1) continue;
+      const dd = Math.hypot(p.wx - camPos.x, p.wy - camPos.y, p.wz - camPos.z);
+      if (dd < near) near = dd; if (dd > far) far = dd;
+    }
+    if (far <= near) { near = 0; far = 1; }
+    pointMat.uniforms.uNear.value = near; pointMat.uniforms.uFar.value = far;
     renderer.render(scene, camera);
     drawOverlay(ppl, r);
     viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === (a > 0.5)));
