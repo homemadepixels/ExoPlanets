@@ -201,13 +201,13 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   // Depth cueing (like Softimage): the nearest planet on screen keeps full color, the farthest
   // planet on screen is darkened by this amount, and everything between is in proportion.
   // The range is recalculated from whatever is visible, so it works at any zoom.
-  const DEPTH_DEFAULTS = { on: true, farAlpha: 0.35, strength: 0.15, color: '#000000', nearSize: 1.5, farSize: 0.7,
+  const DEPTH_DEFAULTS = { on: true, farAlpha: 0, strength: 0.15, color: '#000000', nearSize: 1.5, farSize: 0.2,
                            start: 0, end: 100, curve: 1, lines: false, preview: false };
   const depth = { ...DEPTH_DEFAULTS };
   // Shared by the dots, lines and rings, so one set of settings drives all three
   const DC = { uNear: { value: 0 }, uFar: { value: 1 }, uDim: { value: depth.strength }, uStart: { value: 0 }, uEnd: { value: 1 },
                uCurve: { value: 1 }, uFog: { value: new THREE.Color(0, 0, 0) }, uPreview: { value: 0 },
-               uFarAlpha: { value: 0.35 }, uNearSize: { value: 1.5 }, uFarSize: { value: 0.7 } };
+               uFarAlpha: { value: 0 }, uNearSize: { value: 1.5 }, uFarSize: { value: 0.2 } };
   const DC_GLSL = `uniform float uNear, uFar, uDim, uStart, uEnd, uCurve, uPreview, uFarAlpha, uNearSize, uFarSize; uniform vec3 uFog;
     // How see-through: near = solid, far = uFarAlpha, so far things blend into whatever is behind them
     float dcAlpha(float t) { return uPreview > 0.5 ? 1.0 : mix(1.0, uFarAlpha, t); }
