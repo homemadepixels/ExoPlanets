@@ -372,17 +372,20 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const stemMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
   const stemGeo = new THREE.BufferGeometry();
   const stems = new THREE.LineSegments(stemGeo, stemMat); stems.renderOrder = 2; stems.frustumCulled = false; scene.add(stems);
-  // Small white dots where each height line meets the galaxy plane (same fade as the lines)
+  // Small white rings lying flat on the galaxy plane where each height line meets it (same fade as
+  // the lines). They are real flat shapes, so tilting squashes them into ellipses like the map.
+  // Size: 5 px across at the map's center; nearer rings look bigger, farther ones smaller.
+  const ringShape = new THREE.RingGeometry(0.62, 1, 32); ringShape.rotateX(-Math.PI / 2);
+  const footGeo = new THREE.InstancedBufferGeometry();
+  footGeo.index = ringShape.index; footGeo.setAttribute('position', ringShape.getAttribute('position'));
   const footMat = new THREE.ShaderMaterial({
-    uniforms: { uSize: { value: 3 }, uOpacity: { value: 0 } },
-    vertexShader: `attribute vec3 rgb; varying vec3 vRgb; uniform float uSize;
-      void main() { vRgb = rgb; gl_PointSize = uSize; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `varying vec3 vRgb; uniform float uOpacity;
-      void main() { if (length(gl_PointCoord * 2.0 - 1.0) > 1.0) discard; gl_FragColor = vec4(1.0, 1.0, 1.0, uOpacity); }`,
-    transparent: true, depthTest: false, depthWrite: false,
+    uniforms: { uScale: { value: 1 }, uOpacity: { value: 0 } },
+    vertexShader: `attribute vec3 offset; uniform float uScale;
+      void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position * uScale + offset, 1.0); }`,
+    fragmentShader: `uniform float uOpacity; void main() { gl_FragColor = vec4(1.0, 1.0, 1.0, uOpacity); }`,
+    transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
   });
-  const footGeo = new THREE.BufferGeometry();
-  const feet = new THREE.Points(footGeo, footMat); feet.renderOrder = 2; feet.frustumCulled = false; scene.add(feet);
+  const feet = new THREE.Mesh(footGeo, footMat); feet.renderOrder = 2; feet.frustumCulled = false; scene.add(feet);
   const ORDER = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];   // drawn last = on top
   let shown = [];
   function rebuildPlanets() {
@@ -401,8 +404,8 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     stemGeo.setAttribute('color', new THREE.BufferAttribute(scol, 3));
     const fpos = new Float32Array(shown.length * 3);
     shown.forEach((p, i) => fpos.set([p.wx, 0, p.wz], i * 3));
-    footGeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
-    footGeo.setAttribute('rgb', new THREE.BufferAttribute(rgb, 3));
+    footGeo.setAttribute('offset', new THREE.InstancedBufferAttribute(fpos, 3));
+    footGeo.instanceCount = shown.length;
     dirty = true;
   }
 
@@ -434,7 +437,7 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     const t = tilt() / MAX_TILT;
     stemMat.opacity = Math.max(0, Math.min(1, (t - 0.05) / 0.3)) * 0.2; stems.visible = stemMat.opacity > 0;
     footMat.uniforms.uOpacity.value = stemMat.opacity; feet.visible = stems.visible;
-    footMat.uniforms.uSize.value = 5 * renderer.getPixelRatio();      // 5 px across
+    footMat.uniforms.uScale.value = 2.5 / ppl;      // ring radius in light-years = 2.5 px at the map's center
     renderer.render(scene, camera);
     drawOverlay(ppl, r);
     viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === (a > 0.5)));
