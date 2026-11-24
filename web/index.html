@@ -372,9 +372,9 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const stemMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthTest: false, depthWrite: false });
   const stemGeo = new THREE.BufferGeometry();
   const stems = new THREE.LineSegments(stemGeo, stemMat); stems.renderOrder = 2; stems.frustumCulled = false; scene.add(stems);
-  // Small white rings lying flat on the galaxy plane where each height line meets it (same fade as
-  // the lines). They are real flat shapes, so tilting squashes them into ellipses like the map.
-  // Size: 5 px across at the map's center; nearer rings look bigger, farther ones smaller.
+  // Small white rings lying flat on the galaxy plane where each height line meets it (fade in
+  // with the lines, at half their strength). They are real flat shapes, so tilting squashes them into ellipses like the map.
+  // Size: 10 px across at the map's center; nearer rings look bigger, farther ones smaller.
   const ringShape = new THREE.RingGeometry(0.62, 1, 32); ringShape.rotateX(-Math.PI / 2);
   const footGeo = new THREE.InstancedBufferGeometry();
   footGeo.index = ringShape.index; footGeo.setAttribute('position', ringShape.getAttribute('position'));
@@ -436,8 +436,8 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     pointMat.uniforms.uDpr.value = renderer.getPixelRatio();
     const t = tilt() / MAX_TILT;
     stemMat.opacity = Math.max(0, Math.min(1, (t - 0.05) / 0.3)) * 0.2; stems.visible = stemMat.opacity > 0;
-    footMat.uniforms.uOpacity.value = stemMat.opacity; feet.visible = stems.visible;
-    footMat.uniforms.uScale.value = 2.5 / ppl;      // ring radius in light-years = 2.5 px at the map's center
+    footMat.uniforms.uOpacity.value = stemMat.opacity * 0.5; feet.visible = stems.visible;   // half as strong as the lines
+    footMat.uniforms.uScale.value = 5 / ppl;        // ring radius in light-years = 5 px at the map's center (10 px across)
     renderer.render(scene, camera);
     drawOverlay(ppl, r);
     viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === (a > 0.5)));
