@@ -391,21 +391,27 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   function rebuildPlanets() {
     shown = state.planets.filter(p => p.match).sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group));
     const pos = new Float32Array(shown.length * 3), rgb = new Float32Array(shown.length * 3);
-    const spos = new Float32Array(shown.length * 6), scol = new Float32Array(shown.length * 6);
-    const c = new THREE.Color();
-    shown.forEach((p, i) => {
-      pos.set([p.wx, p.wy, p.wz], i * 3); rgb.set(p.rgb, i * 3);
-      spos.set([p.wx, 0, p.wz, p.wx, p.wy, p.wz], i * 6);
-      c.setStyle(colorFor(p.group)); scol.set([c.r, c.g, c.b, c.r, c.g, c.b], i * 6);
-    });
+    shown.forEach((p, i) => { pos.set([p.wx, p.wy, p.wz], i * 3); rgb.set(p.rgb, i * 3); });
     pointGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     pointGeo.setAttribute('rgb', new THREE.BufferAttribute(rgb, 3));
+    // One height line and one ring per star, not per planet. Planets around the same star share
+    // a spot, and stacking their see-through lines made stars with more planets look brighter.
+    // If a star's planets were found different ways, the line uses the color of the dot on top.
+    const byStar = new Map();
+    for (const p of shown) byStar.set(p.raw.star_system, p);     // later in draw order = on top
+    const stars = [...byStar.values()];
+    const spos = new Float32Array(stars.length * 6), scol = new Float32Array(stars.length * 6);
+    const fpos = new Float32Array(stars.length * 3);
+    const c = new THREE.Color();
+    stars.forEach((p, i) => {
+      spos.set([p.wx, 0, p.wz, p.wx, p.wy, p.wz], i * 6);
+      c.setStyle(colorFor(p.group)); scol.set([c.r, c.g, c.b, c.r, c.g, c.b], i * 6);
+      fpos.set([p.wx, 0, p.wz], i * 3);
+    });
     stemGeo.setAttribute('position', new THREE.BufferAttribute(spos, 3));
     stemGeo.setAttribute('color', new THREE.BufferAttribute(scol, 3));
-    const fpos = new Float32Array(shown.length * 3);
-    shown.forEach((p, i) => fpos.set([p.wx, 0, p.wz], i * 3));
     footGeo.setAttribute('offset', new THREE.InstancedBufferAttribute(fpos, 3));
-    footGeo.instanceCount = shown.length;
+    footGeo.instanceCount = stars.length;
     dirty = true;
   }
 
