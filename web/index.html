@@ -441,7 +441,7 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     pointMat.uniforms.uSize.value = (r + 0.6) * 2 * renderer.getPixelRatio();
     pointMat.uniforms.uDpr.value = renderer.getPixelRatio();
     const t = tilt() / MAX_TILT;
-    stemMat.opacity = Math.max(0, Math.min(1, (t - 0.05) / 0.3)) * 0.2; stems.visible = stemMat.opacity > 0;
+    stemMat.opacity = Math.max(0, Math.min(1, (t - 0.05) / 0.3)) * 0.3; stems.visible = stemMat.opacity > 0;
     footMat.uniforms.uOpacity.value = stemMat.opacity * 0.5; feet.visible = stems.visible;   // half as strong as the lines
     footMat.uniforms.uScale.value = 5 / ppl;        // ring radius in light-years = 5 px at the map's center (10 px across)
     renderer.render(scene, camera);
