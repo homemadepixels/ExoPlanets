@@ -153,15 +153,23 @@
   <div class="dp-head"><b>Depth cueing</b><button id="depthClose" aria-label="Close">×</button></div>
   <label class="dp-check"><input type="checkbox" id="dcOn" checked> On</label>
   <label class="dp-check"><input type="checkbox" id="dcPreview"> Preview: show depth as colors (yellow = near, blue = far)</label>
-  <div class="dp-row"><span>Strength</span><output id="dcStrengthV"></output></div>
+  <div class="dp-row"><span>Far dot visibility</span><output id="dcAlphaV"></output></div>
+  <input type="range" id="dcAlpha" min="0" max="100" step="1">
+  <div class="dp-hint">How solid the farthest dot is. 100% = no fade; lower lets far dots blend into what's behind them</div>
+  <div class="dp-row"><span>Near dot size</span><output id="dcNearSizeV"></output></div>
+  <input type="range" id="dcNearSize" min="50" max="300" step="5">
+  <div class="dp-row"><span>Far dot size</span><output id="dcFarSizeV"></output></div>
+  <input type="range" id="dcFarSize" min="20" max="150" step="5">
+  <div class="dp-hint">Compared to the normal dot size (100%)</div>
+  <div class="dp-row"><span>Darkening</span><output id="dcStrengthV"></output></div>
   <input type="range" id="dcStrength" min="0" max="100" step="1">
-  <div class="dp-hint">How far the farthest planet fades toward the color below</div>
+  <div class="dp-hint">Extra fade of far dots toward the color below</div>
   <div class="dp-row"><span>Fade color</span><input type="color" id="dcColor"></div>
   <div class="dp-row"><span>Starts at</span><output id="dcStartV"></output></div>
   <input type="range" id="dcStart" min="0" max="100" step="1">
   <div class="dp-row"><span>Full strength at</span><output id="dcEndV"></output></div>
   <input type="range" id="dcEnd" min="0" max="100" step="1">
-  <div class="dp-hint">Percent of the way from the nearest to the farthest planet on screen</div>
+  <div class="dp-hint">Percent of the way from the nearest to the farthest planet on screen. Applies to all of the above</div>
   <div class="dp-row"><span>Curve</span><output id="dcCurveV"></output></div>
   <input type="range" id="dcCurve" min="20" max="400" step="5">
   <div class="dp-hint">Below 1: fades early. 1: even. Above 1: stays bright, then fades late</div>
@@ -188,17 +196,21 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   // The detailed image fades in once the galaxy image starts to look blurry
   const FADE_START = 280, FADE_END = 700;                // region width on screen, in device pixels
   const MAX_PX_PER_LY = 20;                              // closest zoom: 1 light-year = 20 px
-  const MAX_TILT = 60 * Math.PI / 180;                   // camera can tilt from top-down to 60°
+  const MAX_TILT = 75 * Math.PI / 180;                   // camera can tilt from top-down to 75°
   const FOV = 40;
   // Depth cueing (like Softimage): the nearest planet on screen keeps full color, the farthest
   // planet on screen is darkened by this amount, and everything between is in proportion.
   // The range is recalculated from whatever is visible, so it works at any zoom.
-  const DEPTH_DEFAULTS = { on: true, strength: 0.35, color: '#000000', start: 0, end: 100, curve: 1, lines: false, preview: false };
+  const DEPTH_DEFAULTS = { on: true, farAlpha: 0.35, strength: 0.15, color: '#000000', nearSize: 1.5, farSize: 0.7,
+                           start: 0, end: 100, curve: 1, lines: false, preview: false };
   const depth = { ...DEPTH_DEFAULTS };
   // Shared by the dots, lines and rings, so one set of settings drives all three
   const DC = { uNear: { value: 0 }, uFar: { value: 1 }, uDim: { value: depth.strength }, uStart: { value: 0 }, uEnd: { value: 1 },
-               uCurve: { value: 1 }, uFog: { value: new THREE.Color(0, 0, 0) }, uPreview: { value: 0 } };
-  const DC_GLSL = `uniform float uNear, uFar, uDim, uStart, uEnd, uCurve, uPreview; uniform vec3 uFog;
+               uCurve: { value: 1 }, uFog: { value: new THREE.Color(0, 0, 0) }, uPreview: { value: 0 },
+               uFarAlpha: { value: 0.35 }, uNearSize: { value: 1.5 }, uFarSize: { value: 0.7 } };
+  const DC_GLSL = `uniform float uNear, uFar, uDim, uStart, uEnd, uCurve, uPreview, uFarAlpha, uNearSize, uFarSize; uniform vec3 uFog;
+    // How see-through: near = solid, far = uFarAlpha, so far things blend into whatever is behind them
+    float dcAlpha(float t) { return uPreview > 0.5 ? 1.0 : mix(1.0, uFarAlpha, t); }
     // 0 = nearest planet on screen, 1 = farthest, reshaped by start, end and curve
     float dcT(float dist) {
       float t = clamp((dist - uNear) / max(uFar - uNear, 1e-6), 0.0, 1.0);
@@ -413,18 +425,20 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const srgb = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
   const pointMat = new THREE.ShaderMaterial({
     uniforms: { uSize: { value: 4 }, uDpr: { value: 1 }, ...DC },
-    vertexShader: `attribute vec3 rgb; varying vec3 vRgb; uniform float uSize; ${DC_GLSL}
+    vertexShader: `attribute vec3 rgb; varying vec3 vRgb; varying float vA; varying float vSize; uniform float uSize; ${DC_GLSL}
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        vRgb = dcApply(rgb, dcT(length(mv.xyz)));
-        gl_PointSize = uSize; gl_Position = projectionMatrix * mv;
+        float t = dcT(length(mv.xyz));
+        vRgb = dcApply(rgb, t); vA = dcAlpha(t);
+        vSize = uSize * mix(uNearSize, uFarSize, t);       // near dots bigger, far dots smaller
+        gl_PointSize = vSize; gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `varying vec3 vRgb; uniform float uSize; uniform float uDpr;
+    fragmentShader: `varying vec3 vRgb; varying float vA; varying float vSize; uniform float uDpr;
       void main() {
         float d = length(gl_PointCoord * 2.0 - 1.0);
         if (d > 1.0) discard;
-        float rim = 1.0 - (0.7 * uDpr) / (uSize * 0.5);   // thin dark outline, about 0.7 px
-        gl_FragColor = d > rim ? vec4(0.0, 0.0, 0.0, 0.75) : vec4(vRgb, 1.0);
+        float rim = 1.0 - (0.7 * uDpr) / (vSize * 0.5);   // thin dark outline, about 0.7 px
+        gl_FragColor = d > rim ? vec4(0.0, 0.0, 0.0, 0.75 * vA) : vec4(vRgb, vA);
       }`,
     transparent: true, depthTest: false, depthWrite: false,
   });
@@ -432,14 +446,14 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const points = new THREE.Points(pointGeo, pointMat); points.renderOrder = 3; points.frustumCulled = false; scene.add(points);
   const stemMat = new THREE.ShaderMaterial({
     uniforms: { uOpacity: { value: 0 }, uUseDC: { value: 0 }, ...DC },
-    vertexShader: `attribute vec3 rgb; attribute vec3 foot; varying vec3 vRgb; uniform float uUseDC; ${DC_GLSL}
+    vertexShader: `attribute vec3 rgb; attribute vec3 foot; varying vec3 vRgb; varying float vA; uniform float uUseDC; ${DC_GLSL}
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float t = dcT(length((modelViewMatrix * vec4(foot, 1.0)).xyz));   // whole line shaded by its planet's distance
-        vRgb = uUseDC > 0.5 ? dcApply(rgb, t) : rgb;
+        vRgb = uUseDC > 0.5 ? dcApply(rgb, t) : rgb; vA = uUseDC > 0.5 ? dcAlpha(t) : 1.0;
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `varying vec3 vRgb; uniform float uOpacity; void main() { gl_FragColor = vec4(vRgb, uOpacity); }`,
+    fragmentShader: `varying vec3 vRgb; varying float vA; uniform float uOpacity; void main() { gl_FragColor = vec4(vRgb, uOpacity * vA); }`,
     transparent: true, depthTest: false, depthWrite: false,
   });
   const stemGeo = new THREE.BufferGeometry();
@@ -452,24 +466,27 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   footGeo.index = ringShape.index; footGeo.setAttribute('position', ringShape.getAttribute('position'));
   const footMat = new THREE.ShaderMaterial({
     uniforms: { uScale: { value: 1 }, uOpacity: { value: 0 }, uUseDC: { value: 0 }, ...DC },
-    vertexShader: `attribute vec3 offset; attribute vec3 top; uniform float uScale, uUseDC; varying vec3 vRgb; ${DC_GLSL}
+    vertexShader: `attribute vec3 offset; attribute vec3 top; uniform float uScale, uUseDC; varying vec3 vRgb; varying float vA; ${DC_GLSL}
       void main() {
         float t = dcT(length((modelViewMatrix * vec4(top, 1.0)).xyz));    // shaded by its planet's distance
-        vRgb = uUseDC > 0.5 ? dcApply(vec3(1.0), t) : vec3(1.0);
+        vRgb = uUseDC > 0.5 ? dcApply(vec3(1.0), t) : vec3(1.0); vA = uUseDC > 0.5 ? dcAlpha(t) : 1.0;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position * uScale + offset, 1.0);
       }`,
-    fragmentShader: `uniform float uOpacity; varying vec3 vRgb; void main() { gl_FragColor = vec4(vRgb, uOpacity); }`,
+    fragmentShader: `uniform float uOpacity; varying vec3 vRgb; varying float vA; void main() { gl_FragColor = vec4(vRgb, uOpacity * vA); }`,
     transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
   });
   const feet = new THREE.Mesh(footGeo, footMat); feet.renderOrder = 2; feet.frustumCulled = false; scene.add(feet);
   const ORDER = ['Transit', 'Other', 'Radial Velocity', 'Imaging', 'Microlensing'];   // drawn last = on top
-  let shown = [];
+  let shown = [], drawOrder = new Uint32Array(0), camDistances = new Float32Array(0);
   function rebuildPlanets() {
     shown = state.planets.filter(p => p.match).sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group));
     const pos = new Float32Array(shown.length * 3), rgb = new Float32Array(shown.length * 3);
     shown.forEach((p, i) => { pos.set([p.wx, p.wy, p.wz], i * 3); rgb.set(p.rgb, i * 3); });
     pointGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     pointGeo.setAttribute('rgb', new THREE.BufferAttribute(rgb, 3));
+    drawOrder = new Uint32Array(shown.length); drawOrder.forEach((_, i) => { drawOrder[i] = i; });
+    camDistances = new Float32Array(shown.length);
+    pointGeo.setIndex(new THREE.BufferAttribute(drawOrder, 1));
     // One height line and one ring per star, not per planet. Planets around the same star share
     // a spot, and stacking their see-through lines made stars with more planets look brighter.
     // If a star's planets were found different ways, the line uses the color of the dot on top.
@@ -527,11 +544,17 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     camera.updateMatrixWorld();
     const camPos = camera.position;
     let near = Infinity, far = 0;
-    for (const p of shown) {
-      v3.set(p.wx, p.wy, p.wz).project(camera);
-      if (v3.z > 1 || v3.x < -1 || v3.x > 1 || v3.y < -1 || v3.y > 1) continue;
+    shown.forEach((p, i) => {
       const dd = Math.hypot(p.wx - camPos.x, p.wy - camPos.y, p.wz - camPos.z);
+      camDistances[i] = dd;
+      v3.set(p.wx, p.wy, p.wz).project(camera);
+      if (v3.z > 1 || v3.x < -1 || v3.x > 1 || v3.y < -1 || v3.y > 1) return;
       if (dd < near) near = dd; if (dd > far) far = dd;
+    });
+    // Draw far dots first and near dots last, so near dots sit on top
+    if (drawOrder.length) {
+      drawOrder.sort((a, b) => camDistances[b] - camDistances[a]);
+      pointGeo.index.needsUpdate = true;
     }
     if (far <= near) { near = 0; far = 1; }
     DC.uNear.value = near; DC.uFar.value = far;
@@ -704,20 +727,28 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   $('depthClose').onclick = () => { panelEl.hidden = true; };
   function applyDepth() {
     DC.uDim.value = depth.on ? depth.strength : 0;
+    DC.uFarAlpha.value = depth.on ? depth.farAlpha : 1;
+    DC.uNearSize.value = depth.on ? depth.nearSize : 1; DC.uFarSize.value = depth.on ? depth.farSize : 1;
     DC.uFog.value.setStyle(depth.color);
     DC.uStart.value = depth.start / 100; DC.uEnd.value = Math.max(depth.end, depth.start + 1) / 100;
     DC.uCurve.value = depth.curve; DC.uPreview.value = depth.preview ? 1 : 0;
     stemMat.uniforms.uUseDC.value = footMat.uniforms.uUseDC.value = (depth.lines || depth.preview) ? 1 : 0;
     $('dcStrengthV').textContent = Math.round(depth.strength * 100) + '%';
+    $('dcAlphaV').textContent = Math.round(depth.farAlpha * 100) + '%';
+    $('dcNearSizeV').textContent = Math.round(depth.nearSize * 100) + '%'; $('dcFarSizeV').textContent = Math.round(depth.farSize * 100) + '%';
     $('dcStartV').textContent = depth.start + '%'; $('dcEndV').textContent = depth.end + '%';
     $('dcCurveV').textContent = depth.curve.toFixed(2);
-    $('dcOut').textContent = `Depth cueing: ${depth.on ? 'on' : 'off'}\nStrength: ${Math.round(depth.strength * 100)}%\nFade color: ${depth.color}\n` +
+    $('dcOut').textContent = `Depth cueing: ${depth.on ? 'on' : 'off'}\nFar dot visibility: ${Math.round(depth.farAlpha * 100)}%\n` +
+      `Near dot size: ${Math.round(depth.nearSize * 100)}%\nFar dot size: ${Math.round(depth.farSize * 100)}%\n` +
+      `Darkening: ${Math.round(depth.strength * 100)}%\nFade color: ${depth.color}\n` +
       `Starts at: ${depth.start}%\nFull strength at: ${depth.end}%\nCurve: ${depth.curve.toFixed(2)}\nShade lines and rings: ${depth.lines ? 'yes' : 'no'}`;
     dirty = true;
   }
   function syncDepthInputs() {
     $('dcOn').checked = depth.on; $('dcPreview').checked = depth.preview; $('dcLines').checked = depth.lines;
     $('dcStrength').value = Math.round(depth.strength * 100); $('dcColor').value = depth.color;
+    $('dcAlpha').value = Math.round(depth.farAlpha * 100);
+    $('dcNearSize').value = Math.round(depth.nearSize * 100); $('dcFarSize').value = Math.round(depth.farSize * 100);
     $('dcStart').value = depth.start; $('dcEnd').value = depth.end; $('dcCurve').value = Math.round(depth.curve * 100);
     applyDepth();
   }
@@ -725,6 +756,9 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   $('dcPreview').onchange = e => { depth.preview = e.target.checked; applyDepth(); };
   $('dcLines').onchange = e => { depth.lines = e.target.checked; applyDepth(); };
   $('dcStrength').oninput = e => { depth.strength = e.target.value / 100; applyDepth(); };
+  $('dcAlpha').oninput = e => { depth.farAlpha = e.target.value / 100; applyDepth(); };
+  $('dcNearSize').oninput = e => { depth.nearSize = e.target.value / 100; applyDepth(); };
+  $('dcFarSize').oninput = e => { depth.farSize = e.target.value / 100; applyDepth(); };
   $('dcColor').oninput = e => { depth.color = e.target.value; applyDepth(); };
   $('dcStart').oninput = e => { depth.start = +e.target.value; if (depth.end <= depth.start) { depth.end = Math.min(100, depth.start + 1); $('dcEnd').value = depth.end; } applyDepth(); };
   $('dcEnd').oninput = e => { depth.end = +e.target.value; if (depth.end <= depth.start) { depth.start = Math.max(0, depth.end - 1); $('dcStart').value = depth.start; } applyDepth(); };
