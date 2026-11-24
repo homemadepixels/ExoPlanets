@@ -202,7 +202,7 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   // planet on screen is darkened by this amount, and everything between is in proportion.
   // The range is recalculated from whatever is visible, so it works at any zoom.
   const DEPTH_DEFAULTS = { on: true, farAlpha: 0, strength: 0.15, color: '#000000', nearSize: 1.5, farSize: 0.2,
-                           start: 0, end: 100, curve: 1, lines: false, preview: false };
+                           start: 0, end: 100, curve: 1, lines: true, preview: false };
   const depth = { ...DEPTH_DEFAULTS };
   // Shared by the dots, lines and rings, so one set of settings drives all three
   const DC = { uNear: { value: 0 }, uFar: { value: 1 }, uDim: { value: depth.strength }, uStart: { value: 0 }, uEnd: { value: 1 },
