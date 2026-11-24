@@ -373,7 +373,7 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   const stemGeo = new THREE.BufferGeometry();
   const stems = new THREE.LineSegments(stemGeo, stemMat); stems.renderOrder = 2; stems.frustumCulled = false; scene.add(stems);
   // Small white rings lying flat on the galaxy plane where each height line meets it (fade in
-  // with the lines, at half their strength). They are real flat shapes, so tilting squashes them into ellipses like the map.
+  // with the lines). They are real flat shapes, so tilting squashes them into ellipses like the map.
   // Size: 10 px across at the map's center; nearer rings look bigger, farther ones smaller.
   const ringShape = new THREE.RingGeometry(0.62, 1, 32); ringShape.rotateX(-Math.PI / 2);
   const footGeo = new THREE.InstancedBufferGeometry();
@@ -441,8 +441,9 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     pointMat.uniforms.uSize.value = (r + 0.6) * 2 * renderer.getPixelRatio();
     pointMat.uniforms.uDpr.value = renderer.getPixelRatio();
     const t = tilt() / MAX_TILT;
-    stemMat.opacity = Math.max(0, Math.min(1, (t - 0.05) / 0.3)) * 0.3; stems.visible = stemMat.opacity > 0;
-    footMat.uniforms.uOpacity.value = stemMat.opacity * 0.5; feet.visible = stems.visible;   // half as strong as the lines
+    const fadeIn = Math.max(0, Math.min(1, (t - 0.05) / 0.3));          // 0 when top-down, 1 once tilted ~20°
+    stemMat.opacity = fadeIn * 0.6; stems.visible = fadeIn > 0;           // lines: 60% at full strength
+    footMat.uniforms.uOpacity.value = fadeIn * 0.4; feet.visible = stems.visible;           // rings: 40% at full strength
     footMat.uniforms.uScale.value = 5 / ppl;        // ring radius in light-years = 5 px at the map's center (10 px across)
     renderer.render(scene, camera);
     drawOverlay(ppl, r);
