@@ -196,6 +196,9 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   // The detailed image fades in once the galaxy image starts to look blurry
   const FADE_START = 280, FADE_END = 700;                // region width on screen, in device pixels
   const MAX_PX_PER_LY = 20;                              // closest zoom: 1 light-year = 20 px
+  const DEPTH_EDGE = 1.15;        // count planets up to 15% past the screen edges
+  const DEPTH_EASE_MS = 350;      // how quickly the depth range follows the view
+  const depthEase = { n: null, f: null, t: 0 };
   const MAX_TILT = 75 * Math.PI / 180;                   // camera can tilt from top-down to 75°
   const FOV = 40;
   // Depth cueing (like Softimage): the nearest planet on screen keeps full color, the farthest
@@ -543,22 +546,41 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     // Depth cueing range: nearest and farthest planet currently on screen
     camera.updateMatrixWorld();
     const camPos = camera.position;
-    let near = Infinity, far = 0;
+    // Stable range: use the 5th and 95th percent of on-screen distances (plus a margin just past
+    // the screen edges) instead of the single nearest and farthest planet, so one planet entering
+    // or leaving the view doesn't change every planet's fade.
+    const visible = [];
     shown.forEach((p, i) => {
       const dd = Math.hypot(p.wx - camPos.x, p.wy - camPos.y, p.wz - camPos.z);
       camDistances[i] = dd;
       v3.set(p.wx, p.wy, p.wz).project(camera);
-      if (v3.z > 1 || v3.x < -1 || v3.x > 1 || v3.y < -1 || v3.y > 1) return;
-      if (dd < near) near = dd; if (dd > far) far = dd;
+      if (v3.z > 1 || Math.abs(v3.x) > DEPTH_EDGE || Math.abs(v3.y) > DEPTH_EDGE) return;
+      visible.push(dd);
     });
+    let near = 0, far = 1;
+    if (visible.length) {
+      visible.sort((a, b) => a - b);
+      const at = q => visible[Math.min(visible.length - 1, Math.round(q * (visible.length - 1)))];
+      near = at(0.05); far = at(0.95);
+      if (far - near < 1e-6 * far) far = near * 1.001 + 1e-6;
+    }
     // Draw far dots first and near dots last, so near dots sit on top
     if (drawOrder.length) {
       drawOrder.sort((a, b) => camDistances[b] - camDistances[a]);
       pointGeo.index.needsUpdate = true;
     }
-    if (far <= near) { near = 0; far = 1; }
-    DC.uNear.value = near; DC.uFar.value = far;
-    depthRange.textContent = shown.length ? `Nearest on screen ${fmtNum(near)} ly · farthest ${fmtNum(far)} ly from the camera` : '';
+    // Ease toward the new range over about a third of a second, so changes glide instead of pop.
+    // The range is kept relative to the camera's distance, so zooming alone doesn't make it lag.
+    const cd = camDist(), now = performance.now();
+    const k = depthEase.t ? 1 - Math.exp(-(now - depthEase.t) / DEPTH_EASE_MS) : 1;
+    depthEase.t = now;
+    const tn = near / cd, tf = far / cd;
+    if (depthEase.n == null) { depthEase.n = tn; depthEase.f = tf; }
+    depthEase.n += (tn - depthEase.n) * k; depthEase.f += (tf - depthEase.f) * k;
+    if (Math.abs(tn - depthEase.n) > 1e-4 * tn || Math.abs(tf - depthEase.f) > 1e-4 * tf) dirty = true;   // keep easing
+    else depthEase.t = 0;
+    DC.uNear.value = depthEase.n * cd; DC.uFar.value = depthEase.f * cd;
+    depthRange.textContent = shown.length ? `Depth range ${fmtNum(DC.uNear.value)} – ${fmtNum(DC.uFar.value)} ly from the camera` : '';
     renderer.render(scene, camera);
     drawOverlay(ppl, r);
     viewBtns.forEach(b => b.classList.toggle('on', (b.dataset.view === 'solar') === (a > 0.5)));
