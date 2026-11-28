@@ -173,7 +173,9 @@
   <div class="dp-row"><span>Curve</span><output id="dcCurveV"></output></div>
   <input type="range" id="dcCurve" min="20" max="400" step="5">
   <div class="dp-hint">Below 1: fades early. 1: even. Above 1: stays bright, then fades late</div>
-  <label class="dp-check"><input type="checkbox" id="dcLines"> Also shade height lines and rings</label>
+  <div class="dp-row"><span>Lines and rings fade</span><output id="dcLinesV"></output></div>
+  <input type="range" id="dcLines" min="0" max="100" step="1">
+  <div class="dp-hint">How much height lines and rings fade with their planet. 0% = no fade, 100% = same as the dots</div>
   <div class="dp-hint" id="depthRange"></div>
   <pre id="dcOut"></pre>
   <div class="btns"><button id="dcCopy">Copy settings</button><button id="dcReset">Reset</button></div>
@@ -204,13 +206,13 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   // Depth cueing (like Softimage): the nearest planet on screen keeps full color, the farthest
   // planet on screen is darkened by this amount, and everything between is in proportion.
   // The range is recalculated from whatever is visible, so it works at any zoom.
-  const DEPTH_DEFAULTS = { on: true, farAlpha: 0, strength: 0.15, color: '#000000', nearSize: 1.5, farSize: 0.2,
-                           start: 0, end: 100, curve: 1, lines: true, preview: false };
+  const DEPTH_DEFAULTS = { on: true, farAlpha: 0, strength: 0.15, color: '#000000', nearSize: 1.8, farSize: 0.2,
+                           start: 0, end: 100, curve: 1, lineFade: 1, preview: false };
   const depth = { ...DEPTH_DEFAULTS };
   // Shared by the dots, lines and rings, so one set of settings drives all three
   const DC = { uNear: { value: 0 }, uFar: { value: 1 }, uDim: { value: depth.strength }, uStart: { value: 0 }, uEnd: { value: 1 },
                uCurve: { value: 1 }, uFog: { value: new THREE.Color(0, 0, 0) }, uPreview: { value: 0 },
-               uFarAlpha: { value: 0 }, uNearSize: { value: 1.5 }, uFarSize: { value: 0.2 } };
+               uFarAlpha: { value: 0 }, uNearSize: { value: 1.8 }, uFarSize: { value: 0.2 } };
   const DC_GLSL = `uniform float uNear, uFar, uDim, uStart, uEnd, uCurve, uPreview, uFarAlpha, uNearSize, uFarSize; uniform vec3 uFog;
     // How see-through: near = solid, far = uFarAlpha, so far things blend into whatever is behind them
     float dcAlpha(float t) { return uPreview > 0.5 ? 1.0 : mix(1.0, uFarAlpha, t); }
@@ -453,7 +455,8 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float t = dcT(length((modelViewMatrix * vec4(foot, 1.0)).xyz));   // whole line shaded by its planet's distance
-        vRgb = uUseDC > 0.5 ? dcApply(rgb, t) : rgb; vA = uUseDC > 0.5 ? dcAlpha(t) : 1.0;
+        t *= uUseDC;                                        // how much lines fade (0 = none, 1 = like the dots)
+        vRgb = dcApply(rgb, t); vA = dcAlpha(t);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `varying vec3 vRgb; varying float vA; uniform float uOpacity; void main() { gl_FragColor = vec4(vRgb, uOpacity * vA); }`,
@@ -472,7 +475,8 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     vertexShader: `attribute vec3 offset; attribute vec3 top; uniform float uScale, uUseDC; varying vec3 vRgb; varying float vA; ${DC_GLSL}
       void main() {
         float t = dcT(length((modelViewMatrix * vec4(top, 1.0)).xyz));    // shaded by its planet's distance
-        vRgb = uUseDC > 0.5 ? dcApply(vec3(1.0), t) : vec3(1.0); vA = uUseDC > 0.5 ? dcAlpha(t) : 1.0;
+        t *= uUseDC;                                        // how much rings fade (0 = none, 1 = like the dots)
+        vRgb = dcApply(vec3(1.0), t); vA = dcAlpha(t);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position * uScale + offset, 1.0);
       }`,
     fragmentShader: `uniform float uOpacity; varying vec3 vRgb; varying float vA; void main() { gl_FragColor = vec4(vRgb, uOpacity * vA); }`,
@@ -753,7 +757,8 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     DC.uFog.value.setStyle(depth.color);
     DC.uStart.value = depth.start / 100; DC.uEnd.value = Math.max(depth.end, depth.start + 1) / 100;
     DC.uCurve.value = depth.curve; DC.uPreview.value = depth.preview ? 1 : 0;
-    stemMat.uniforms.uUseDC.value = footMat.uniforms.uUseDC.value = (depth.lines || depth.preview) ? 1 : 0;
+    stemMat.uniforms.uUseDC.value = footMat.uniforms.uUseDC.value = depth.preview ? 1 : depth.lineFade;
+    $('dcLinesV').textContent = Math.round(depth.lineFade * 100) + '%';
     $('dcStrengthV').textContent = Math.round(depth.strength * 100) + '%';
     $('dcAlphaV').textContent = Math.round(depth.farAlpha * 100) + '%';
     $('dcNearSizeV').textContent = Math.round(depth.nearSize * 100) + '%'; $('dcFarSizeV').textContent = Math.round(depth.farSize * 100) + '%';
@@ -762,11 +767,11 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     $('dcOut').textContent = `Depth cueing: ${depth.on ? 'on' : 'off'}\nFar dot visibility: ${Math.round(depth.farAlpha * 100)}%\n` +
       `Near dot size: ${Math.round(depth.nearSize * 100)}%\nFar dot size: ${Math.round(depth.farSize * 100)}%\n` +
       `Darkening: ${Math.round(depth.strength * 100)}%\nFade color: ${depth.color}\n` +
-      `Starts at: ${depth.start}%\nFull strength at: ${depth.end}%\nCurve: ${depth.curve.toFixed(2)}\nShade lines and rings: ${depth.lines ? 'yes' : 'no'}`;
+      `Starts at: ${depth.start}%\nFull strength at: ${depth.end}%\nCurve: ${depth.curve.toFixed(2)}\nLines and rings fade: ${Math.round(depth.lineFade * 100)}%`;
     dirty = true;
   }
   function syncDepthInputs() {
-    $('dcOn').checked = depth.on; $('dcPreview').checked = depth.preview; $('dcLines').checked = depth.lines;
+    $('dcOn').checked = depth.on; $('dcPreview').checked = depth.preview; $('dcLines').value = Math.round(depth.lineFade * 100);
     $('dcStrength').value = Math.round(depth.strength * 100); $('dcColor').value = depth.color;
     $('dcAlpha').value = Math.round(depth.farAlpha * 100);
     $('dcNearSize').value = Math.round(depth.nearSize * 100); $('dcFarSize').value = Math.round(depth.farSize * 100);
@@ -775,7 +780,7 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   }
   $('dcOn').onchange = e => { depth.on = e.target.checked; applyDepth(); };
   $('dcPreview').onchange = e => { depth.preview = e.target.checked; applyDepth(); };
-  $('dcLines').onchange = e => { depth.lines = e.target.checked; applyDepth(); };
+  $('dcLines').oninput = e => { depth.lineFade = e.target.value / 100; applyDepth(); };
   $('dcStrength').oninput = e => { depth.strength = e.target.value / 100; applyDepth(); };
   $('dcAlpha').oninput = e => { depth.farAlpha = e.target.value / 100; applyDepth(); };
   $('dcNearSize').oninput = e => { depth.nearSize = e.target.value / 100; applyDepth(); };
