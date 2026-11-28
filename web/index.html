@@ -122,7 +122,7 @@
   <button id="zoomIn" aria-label="Zoom in">+</button>
   <button id="zoomOut" aria-label="Zoom out">−</button>
   <button id="tiltBtn" aria-label="Tilt the map">3D</button>
-  <button id="depthBtn" aria-label="Depth cueing settings" title="Depth cueing settings">◐</button>
+  <button id="depthBtn" aria-label="Display settings" title="Display settings">◐</button>
 </div>
 <div id="loading">Loading map…</div>
 
@@ -150,7 +150,10 @@
 <div id="card"><button class="x" id="cardClose" aria-label="Close">×</button><div id="cardBody"></div></div>
 <div id="tip"></div>
 <div id="depthPanel" hidden>
-  <div class="dp-head"><b>Depth cueing</b><button id="depthClose" aria-label="Close">×</button></div>
+  <div class="dp-head"><b>Display</b><button id="depthClose" aria-label="Close">×</button></div>
+  <div class="dp-row"><span>Planet style</span></div>
+  <div class="seg" id="dcStyle" style="margin:6px 0 10px"><button data-style="dots">Dots</button><button data-style="spheres">Shaded spheres</button></div>
+  <div class="dp-row" style="margin-top:0"><span>Depth cueing</span></div>
   <label class="dp-check"><input type="checkbox" id="dcOn" checked> On</label>
   <label class="dp-check"><input type="checkbox" id="dcPreview"> Preview: show depth as colors (yellow = near, blue = far)</label>
   <div class="dp-row"><span>Far dot visibility</span><output id="dcAlphaV"></output></div>
@@ -207,7 +210,7 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   // planet on screen is darkened by this amount, and everything between is in proportion.
   // The range is recalculated from whatever is visible, so it works at any zoom.
   const DEPTH_DEFAULTS = { on: true, farAlpha: 0, strength: 0.15, color: '#000000', nearSize: 1.8, farSize: 0.2,
-                           start: 0, end: 100, curve: 1, lineFade: 0.5, preview: false };
+                           start: 0, end: 100, curve: 1, lineFade: 0.5, preview: false, style: 'dots' };
   const depth = { ...DEPTH_DEFAULTS };
   // Shared by the dots, lines and rings, so one set of settings drives all three
   const DC = { uNear: { value: 0 }, uFar: { value: 1 }, uDim: { value: depth.strength }, uStart: { value: 0 }, uEnd: { value: 1 },
@@ -429,7 +432,7 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
   // ---------- Planets: dots at their real 3D positions, plus height lines when tilted ----------
   const srgb = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
   const pointMat = new THREE.ShaderMaterial({
-    uniforms: { uSize: { value: 4 }, uDpr: { value: 1 }, ...DC },
+    uniforms: { uSize: { value: 4 }, uDpr: { value: 1 }, uSphere: { value: 0 }, ...DC },
     vertexShader: `const float DOT_BRIGHTNESS = 1.15; attribute vec3 rgb; varying vec3 vRgb; varying float vA; varying float vSize; uniform float uSize; ${DC_GLSL}
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
@@ -438,10 +441,22 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
         vSize = uSize * mix(uNearSize, uFarSize, t);       // near dots bigger, far dots smaller
         gl_PointSize = vSize; gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `varying vec3 vRgb; varying float vA; varying float vSize; uniform float uDpr;
+    fragmentShader: `varying vec3 vRgb; varying float vA; varying float vSize; uniform float uDpr, uSphere;
       void main() {
-        float d = length(gl_PointCoord * 2.0 - 1.0);
+        vec2 p = gl_PointCoord * 2.0 - 1.0;
+        float d = length(p);
         if (d > 1.0) discard;
+        if (uSphere > 0.5) {
+          // Shaded sphere (Lambert), like the default sphere in Maya or Blender: each dot is drawn as
+          // the front of a ball lit by a soft key light from the upper left of the camera.
+          vec3 n = vec3(p.x, -p.y, sqrt(max(0.0, 1.0 - d * d)));
+          vec3 L = normalize(vec3(-0.45, 0.55, 0.7));
+          float diffuse = max(dot(n, L), 0.0);
+          float shade = 0.18 + 0.92 * diffuse;                    // ambient + diffuse
+          float edge = smoothstep(1.0, 1.0 - 2.0 * uDpr / vSize, d);  // soft anti-aliased edge
+          gl_FragColor = vec4(vRgb * shade, vA * edge);
+          return;
+        }
         float rim = 1.0 - (0.7 * uDpr) / (vSize * 0.5);   // thin dark outline, about 0.7 px
         gl_FragColor = d > rim ? vec4(0.0, 0.0, 0.0, 0.75 * vA) : vec4(vRgb, vA);
       }`,
@@ -764,12 +779,15 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
     $('dcNearSizeV').textContent = Math.round(depth.nearSize * 100) + '%'; $('dcFarSizeV').textContent = Math.round(depth.farSize * 100) + '%';
     $('dcStartV').textContent = depth.start + '%'; $('dcEndV').textContent = depth.end + '%';
     $('dcCurveV').textContent = depth.curve.toFixed(2);
-    $('dcOut').textContent = `Depth cueing: ${depth.on ? 'on' : 'off'}\nFar dot visibility: ${Math.round(depth.farAlpha * 100)}%\n` +
+    pointMat.uniforms.uSphere.value = depth.style === 'spheres' ? 1 : 0;
+    document.querySelectorAll('#dcStyle button').forEach(b => b.classList.toggle('on', b.dataset.style === depth.style));
+    $('dcOut').textContent = `Planet style: ${depth.style === 'spheres' ? 'shaded spheres' : 'dots'}\nDepth cueing: ${depth.on ? 'on' : 'off'}\nFar dot visibility: ${Math.round(depth.farAlpha * 100)}%\n` +
       `Near dot size: ${Math.round(depth.nearSize * 100)}%\nFar dot size: ${Math.round(depth.farSize * 100)}%\n` +
       `Darkening: ${Math.round(depth.strength * 100)}%\nFade color: ${depth.color}\n` +
       `Starts at: ${depth.start}%\nFull strength at: ${depth.end}%\nCurve: ${depth.curve.toFixed(2)}\nLines and rings fade: ${Math.round(depth.lineFade * 100)}%`;
     dirty = true;
   }
+  document.querySelectorAll('#dcStyle button').forEach(b => b.onclick = () => { depth.style = b.dataset.style; applyDepth(); });
   function syncDepthInputs() {
     $('dcOn').checked = depth.on; $('dcPreview').checked = depth.preview; $('dcLines').value = Math.round(depth.lineFade * 100);
     $('dcStrength').value = Math.round(depth.strength * 100); $('dcColor').value = depth.color;
