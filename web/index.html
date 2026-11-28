@@ -586,6 +586,12 @@ import { MapControls } from './vendor/three/controls/MapControls.js';
       if (eff < near) near = eff; if (eff > far) far = eff;
     });
     if (!(far > near)) { near = mid * 0.999; far = mid * 1.001; }
+    // Draw far planets first and near planets last, so nearer planets always sit on top,
+    // whatever color they are
+    if (drawOrder.length) {
+      drawOrder.sort((a, b) => camDistances[b] - camDistances[a]);
+      pointGeo.index.needsUpdate = true;
+    }
     // Tilting toward the horizon can stretch the far end very fast (thousands of light-years come
     // into view), so glide to the new range over ~0.3 s. Kept relative to the camera distance, so
     // plain zooming doesn't lag.
